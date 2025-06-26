@@ -1,0 +1,21 @@
+# Vim swap files
+*.swp
+*.swo
+*~
+
+# Neovim
+.nvim/
+
+# MacOS
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# Development
+test/
+experiments/
+*.log
+
+# Screenshots (will be added later)
+screenshots/ 

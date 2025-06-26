@@ -1,0 +1,202 @@
+*nimure.txt*                Azure Resource Explorer for Neovim
+
+==============================================================================
+CONTENTS                                                      *nimure-contents*
+
+1. Introduction                                           |nimure-introduction|
+2. Requirements                                           |nimure-requirements|
+3. Installation                                           |nimure-installation|
+4. Configuration                                         |nimure-configuration|
+5. Usage                                                         |nimure-usage|
+6. Commands                                                   |nimure-commands|
+7. Keybindings                                             |nimure-keybindings|
+8. API                                                             |nimure-api|
+9. Troubleshooting                                     |nimure-troubleshooting|
+10. Contributing                                         |nimure-contributing|
+
+==============================================================================
+INTRODUCTION                                              *nimure-introduction*
+
+Nimure is a Neovim plugin that provides a beautiful sidebar interface to 
+explore and manage your Azure subscription resources directly from your editor.
+
+Features:
+- Sidebar view of all Azure resources
+- Telescope integration for searching
+- Resource details and metrics
+- Copy resource IDs and names
+- Async operations for smooth performance
+
+==============================================================================
+REQUIREMENTS                                              *nimure-requirements*
+
+- Neovim >= 0.8.0
+- Azure CLI (`az`) installed and configured
+- Required plugins:
+  - nui.nvim
+  - telescope.nvim
+  - plenary.nvim
+- Optional plugins:
+  - nvim-web-devicons (for icons)
+
+==============================================================================
+INSTALLATION                                              *nimure-installation*
+
+Using lazy.nvim: >
+    {
+      "lukaszmoskwa/nimure",
+      dependencies = {
+        "MunifTanjim/nui.nvim",
+        "nvim-telescope/telescope.nvim",
+        "nvim-lua/plenary.nvim",
+        "nvim-tree/nvim-web-devicons",
+      },
+      config = function()
+        require("nimure").setup()
+      end,
+    }
+<
+
+==============================================================================
+CONFIGURATION                                            *nimure-configuration*
+
+Default configuration: >
+    require("nimure").setup({
+      sidebar = {
+        width = 40,
+        position = "left",
+        auto_close = false,
+        border = "rounded",
+      },
+      azure = {
+        subscription_id = nil,
+        resource_groups = {},
+        timeout = 30000,
+      },
+      ui = {
+        show_icons = true,
+        show_resource_group = true,
+        show_location = true,
+        show_type = true,
+        show_tags = false,
+        indent = "  ",
+      },
+      keymaps = {
+        toggle_sidebar = "<leader>az",
+        refresh = "r",
+        details = "<CR>",
+        metrics = "m",
+        copy_id = "y",
+        copy_name = "Y",
+        search = "/",
+        close = "q",
+      },
+      debug = false,
+    })
+<
+
+==============================================================================
+USAGE                                                            *nimure-usage*
+
+1. Ensure Azure CLI is installed and authenticated:
+   `az login`
+
+2. Open Neovim and run:
+   `:NimureToggle`
+
+3. Navigate the sidebar with arrow keys or j/k
+4. Press <CR> to view resource details
+5. Press 'r' to refresh the resource list
+6. Press '/' to search resources with Telescope
+
+==============================================================================
+COMMANDS                                                      *nimure-commands*
+
+                                                              *:NimureToggle*
+:NimureToggle           Toggle the sidebar on/off
+
+                                                                *:NimureOpen*
+:NimureOpen             Open the sidebar
+
+                                                               *:NimureClose*
+:NimureClose            Close the sidebar
+
+                                                             *:NimureRefresh*
+:NimureRefresh          Refresh the resource list
+
+                                                              *:NimureSearch*
+:NimureSearch           Open Telescope resource search
+
+                                                              *:NimureHealth*
+:NimureHealth           Run health check
+
+==============================================================================
+KEYBINDINGS                                                *nimure-keybindings*
+
+Global keybindings:
+  <leader>az              Toggle sidebar
+
+Sidebar keybindings:
+  <CR>                    Show resource details
+  m                       Show resource metrics
+  y                       Copy resource ID
+  Y                       Copy resource name
+  r                       Refresh resource list
+  /                       Search resources
+  q                       Close sidebar
+
+Telescope keybindings:
+  <CR>                    Show resource details
+  <C-y>                   Copy resource ID
+  <C-n>                   Copy resource name
+  <C-m>                   Show resource metrics
+
+==============================================================================
+API                                                                *nimure-api*
+
+                                                            *nimure.setup()*
+nimure.setup({opts})    Setup the plugin with configuration
+
+                                                     *nimure.toggle_sidebar()*
+nimure.toggle_sidebar() Toggle the sidebar
+
+                                                       *nimure.open_sidebar()*
+nimure.open_sidebar()   Open the sidebar
+
+                                                      *nimure.close_sidebar()*
+nimure.close_sidebar()  Close the sidebar
+
+                                                    *nimure.refresh_resources()*
+nimure.refresh_resources() Refresh Azure resources
+
+                                                     *nimure.search_resources()*
+nimure.search_resources() Search resources with Telescope
+
+==============================================================================
+TROUBLESHOOTING                                        *nimure-troubleshooting*
+
+Common issues:
+
+1. "Azure CLI not found"
+   - Install Azure CLI: https://docs.microsoft.com/en-us/cli/azure/
+   - Ensure `az` is in your PATH
+
+2. "Not logged in to Azure"
+   - Run `az login` to authenticate
+
+3. "No resources found"
+   - Check your subscription with `az account show`
+   - Verify you have resources in your subscription
+
+4. Plugin not loading
+   - Run `:checkhealth nimure` to diagnose issues
+   - Check that required plugins are installed
+
+==============================================================================
+CONTRIBUTING                                              *nimure-contributing*
+
+Report bugs and contribute at:
+https://github.com/lukaszmoskwa/nimure
+
+==============================================================================
+vim:tw=78:ts=8:ft=help:norl: 
