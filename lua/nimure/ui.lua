@@ -270,6 +270,11 @@ function M.update_sidebar(resources)
 	end)
 end
 
+local function make_unique_id(resource)
+	-- Prefer a stable Azure identifier if available
+	return resource.id or (resource.resource_group .. "-" .. resource.name)
+end
+
 -- Build tree nodes from resources
 function M.build_tree_nodes(resources)
 	local nodes = {}
@@ -291,6 +296,7 @@ function M.build_tree_nodes(resources)
 		local child_nodes = {}
 		for _, resource in ipairs(rg_resources) do
 			local resource_node = NuiTree.Node({
+				id = make_unique_id(resource),
 				text = resource.name,
 				resource = resource,
 			})
@@ -299,6 +305,7 @@ function M.build_tree_nodes(resources)
 
 		-- Create resource group node with children (expanded by default)
 		local rg_node = NuiTree.Node({
+			id = "rg-" .. rg_name,
 			text = rg_name,
 			resource_group = true,
 		}, child_nodes)
