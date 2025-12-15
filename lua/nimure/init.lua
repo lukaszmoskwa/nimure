@@ -83,7 +83,7 @@ function M.close_sidebar()
 end
 
 -- Refresh resources
-function M.refresh_resources()
+function M.refresh_resources(callback)
 	if M.state.loading then
 		return
 	end
@@ -116,6 +116,10 @@ function M.refresh_resources()
 			end
 
 			vim.notify("Refreshed " .. #resources .. " Azure resources", vim.log.levels.INFO)
+
+			if callback then
+				callback()
+			end
 		end)
 	end)
 end
@@ -126,7 +130,9 @@ function M.search_resources()
 		vim.schedule(function()
 			vim.notify("No resources loaded. Refreshing...", vim.log.levels.INFO)
 		end)
-		M.refresh_resources()
+		M.refresh_resources(function()
+			telescope_extension.search_resources(M.state.resources)
+		end)
 		return
 	end
 
