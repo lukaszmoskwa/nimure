@@ -270,4 +270,3 @@ function M.get_locations(resources)
 end
 
 return M
-
