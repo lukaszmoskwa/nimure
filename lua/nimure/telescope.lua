@@ -421,13 +421,13 @@ function M.search_ad_objects(ad_objects)
 					return {
 						value = ad_object,
 						display = display_name,
-						ordinal = ad_object.name
+						ordinal = tostring(ad_object.name or "")
 							.. " "
-							.. ad_object.type
+							.. tostring(ad_object.type or "")
 							.. " "
-							.. (ad_object.properties.user_principal_name or "")
+							.. tostring(ad_object.properties.user_principal_name or "")
 							.. " "
-							.. (ad_object.properties.app_id or ""),
+							.. tostring(ad_object.properties.app_id or ""),
 					}
 				end,
 			}),
@@ -472,54 +472,61 @@ function M.create_ad_object_previewer()
 			local ad_object = entry.value
 			local lines = {}
 
+			-- Safe string conversion helper
+			local function safe_str(value)
+				if value == nil then
+					return "N/A"
+				elseif type(value) == "string" then
+					return value
+				elseif type(value) == "boolean" then
+					return tostring(value)
+				elseif type(value) == "number" then
+					return tostring(value)
+				else
+					return tostring(value)
+				end
+			end
+
 			-- Basic info
-			table.insert(lines, "Name: " .. ad_object.name)
-			table.insert(lines, "Type: " .. ad_object.type:gsub("Microsoft%.AzureAD/", ""))
-			table.insert(lines, "Location: " .. ad_object.location)
+			table.insert(lines, "Name: " .. safe_str(ad_object.name))
+			table.insert(lines, "Type: " .. safe_str(ad_object.type:gsub("Microsoft%.AzureAD/", "")))
+			table.insert(lines, "Location: " .. safe_str(ad_object.location))
 			table.insert(lines, "")
 
 			-- Object-specific details
 			if ad_object.properties then
 				if ad_object.type == "Microsoft.AzureAD/appRegistrations" then
-					table.insert(lines, "Application ID: " .. (ad_object.properties.app_id or "N/A"))
-					table.insert(lines, "Object ID: " .. (ad_object.properties.object_id or "N/A"))
-					if ad_object.properties.sign_in_audience then
-						table.insert(lines, "Sign-in Audience: " .. ad_object.properties.sign_in_audience)
-					end
+					table.insert(lines, "Application ID: " .. safe_str(ad_object.properties.app_id))
+					table.insert(lines, "Object ID: " .. safe_str(ad_object.properties.object_id))
+					table.insert(lines, "Sign-in Audience: " .. safe_str(ad_object.properties.sign_in_audience))
 
 				elseif ad_object.type == "Microsoft.AzureAD/users" then
-					table.insert(lines, "User Principal Name: " .. (ad_object.properties.user_principal_name or "N/A"))
-					table.insert(lines, "Object ID: " .. (ad_object.properties.object_id or "N/A"))
-					table.insert(lines, "Email: " .. (ad_object.properties.mail or "N/A"))
-					table.insert(lines, "Account Enabled: " .. tostring(ad_object.properties.account_enabled or false))
-					if ad_object.properties.job_title then
-						table.insert(lines, "Job Title: " .. ad_object.properties.job_title)
-					end
-					if ad_object.properties.department then
-						table.insert(lines, "Department: " .. ad_object.properties.department)
-					end
+					table.insert(lines, "User Principal Name: " .. safe_str(ad_object.properties.user_principal_name))
+					table.insert(lines, "Object ID: " .. safe_str(ad_object.properties.object_id))
+					table.insert(lines, "Email: " .. safe_str(ad_object.properties.mail))
+					table.insert(lines, "Account Enabled: " .. safe_str(ad_object.properties.account_enabled))
+					table.insert(lines, "Job Title: " .. safe_str(ad_object.properties.job_title))
+					table.insert(lines, "Department: " .. safe_str(ad_object.properties.department))
 
 				elseif ad_object.type == "Microsoft.AzureAD/groups" then
-					table.insert(lines, "Object ID: " .. (ad_object.properties.object_id or "N/A"))
-					table.insert(lines, "Mail: " .. (ad_object.properties.mail or "N/A"))
-					table.insert(lines, "Security Enabled: " .. tostring(ad_object.properties.security_enabled or false))
-					table.insert(lines, "Mail Enabled: " .. tostring(ad_object.properties.mail_enabled or false))
-					if ad_object.properties.description then
-						table.insert(lines, "Description: " .. ad_object.properties.description)
-					end
+					table.insert(lines, "Object ID: " .. safe_str(ad_object.properties.object_id))
+					table.insert(lines, "Mail: " .. safe_str(ad_object.properties.mail))
+					table.insert(lines, "Security Enabled: " .. safe_str(ad_object.properties.security_enabled))
+					table.insert(lines, "Mail Enabled: " .. safe_str(ad_object.properties.mail_enabled))
+					table.insert(lines, "Description: " .. safe_str(ad_object.properties.description))
 
 				elseif ad_object.type == "Microsoft.AzureAD/roleAssignments" then
-					table.insert(lines, "Role: " .. (ad_object.properties.role_definition_name or "N/A"))
-					table.insert(lines, "Principal: " .. (ad_object.properties.principal_name or "N/A"))
-					table.insert(lines, "Principal Type: " .. (ad_object.properties.principal_type or "N/A"))
-					table.insert(lines, "Scope: " .. (ad_object.properties.scope or "N/A"))
-					table.insert(lines, "Created On: " .. (ad_object.properties.created_on or "N/A"))
+					table.insert(lines, "Role: " .. safe_str(ad_object.properties.role_definition_name))
+					table.insert(lines, "Principal: " .. safe_str(ad_object.properties.principal_name))
+					table.insert(lines, "Principal Type: " .. safe_str(ad_object.properties.principal_type))
+					table.insert(lines, "Scope: " .. safe_str(ad_object.properties.scope))
+					table.insert(lines, "Created On: " .. safe_str(ad_object.properties.created_on))
 				end
 			end
 
 			table.insert(lines, "")
 			table.insert(lines, "Resource ID:")
-			table.insert(lines, ad_object.id)
+			table.insert(lines, safe_str(ad_object.id))
 			table.insert(lines, "")
 
 			local txt = [[
