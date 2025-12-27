@@ -97,6 +97,92 @@ end, {
 	desc = "Switch Azure subscription",
 })
 
+-- Azure AD commands
+vim.api.nvim_create_user_command("NimureADSearch", function()
+	require("nimure").search_ad_objects()
+end, {
+	desc = "Search Azure AD objects with Telescope",
+})
+
+vim.api.nvim_create_user_command("NimureADApps", function()
+	require("nimure.azure_ad").get_app_registrations(function(apps, error)
+		if error then
+			vim.schedule(function()
+				vim.notify("Failed to get app registrations: " .. error, vim.log.levels.ERROR)
+			end)
+			return
+		end
+		
+		local ad_objects = { app_registrations = apps }
+		require("nimure").search_ad_objects(ad_objects)
+	end)
+end, {
+	desc = "Search Azure AD app registrations",
+})
+
+vim.api.nvim_create_user_command("NimureADUsers", function()
+	require("nimure.azure_ad").get_users(function(users, error)
+		if error then
+			vim.schedule(function()
+				vim.notify("Failed to get users: " .. error, vim.log.levels.ERROR)
+			end)
+			return
+		end
+		
+		local ad_objects = { users = users }
+		require("nimure").search_ad_objects(ad_objects)
+	end)
+end, {
+	desc = "Search Azure AD users",
+})
+
+vim.api.nvim_create_user_command("NimureADGroups", function()
+	require("nimure.azure_ad").get_groups(function(groups, error)
+		if error then
+			vim.schedule(function()
+				vim.notify("Failed to get groups: " .. error, vim.log.levels.ERROR)
+			end)
+			return
+		end
+		
+		local ad_objects = { groups = groups }
+		require("nimure").search_ad_objects(ad_objects)
+	end)
+end, {
+	desc = "Search Azure AD groups",
+})
+
+vim.api.nvim_create_user_command("NimureADRoles", function()
+	require("nimure.azure_ad").get_role_assignments(function(roles, error)
+		if error then
+			vim.schedule(function()
+				vim.notify("Failed to get role assignments: " .. error, vim.log.levels.ERROR)
+			end)
+			return
+		end
+		
+		local ad_objects = { role_assignments = roles }
+		require("nimure").search_ad_objects(ad_objects)
+	end)
+end, {
+	desc = "Search Azure AD role assignments",
+})
+
+-- Cache management command
+vim.api.nvim_create_user_command("NimureClearCache", function()
+	local azure = require("nimure.azure")
+	local azure_ad = require("nimure.azure_ad")
+	
+	azure.clear_cache()
+	azure_ad.clear_cache()
+	
+	vim.schedule(function()
+		vim.notify("Azure and Azure AD cache cleared", vim.log.levels.INFO)
+	end)
+end, {
+	desc = "Clear Azure and Azure AD data cache to force fresh data",
+})
+
 -- Set up health check
 vim.api.nvim_create_user_command("NimureHealth", function()
 	require("nimure.health").check()

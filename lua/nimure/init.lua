@@ -4,6 +4,7 @@
 local config = require("nimure.config")
 local ui = require("nimure.ui")
 local azure = require("nimure.azure")
+local azure_ad = require("nimure.azure_ad")
 local telescope_extension = require("nimure.telescope")
 local costs = require("nimure.costs")
 
@@ -14,6 +15,7 @@ M.state = {
 	setup_done = false,
 	sidebar_open = false,
 	resources = {},
+	ad_objects = {},
 	loading = false,
 }
 
@@ -71,10 +73,10 @@ function M.open_sidebar()
 	M.state.sidebar_open = true
 
 	-- Load resources if not already loaded
-	if #M.state.resources == 0 and not M.state.loading then
+	if (#M.state.resources == 0 or #M.state.ad_objects == 0) and not M.state.loading then
 		M.refresh_resources()
 	else
-		ui.update_sidebar(M.state.resources)
+		ui.update_sidebar(M.state.resources, M.state.ad_objects)
 	end
 end
 
@@ -101,32 +103,148 @@ function M.refresh_resources(callback)
 		ui.show_loading()
 	end
 
+	local resource_count = 0
+	local ad_count = 0
+	local completed_requests = 0
+	local total_requests = 2 -- Resources and AD
+
+	-- Get regular Azure resources
 	azure.get_resources(function(resources, error)
-		M.state.loading = false
-
-		-- Use vim.schedule to defer notifications out of fast event context
-		vim.schedule(function()
-			if error then
-				vim.notify("Failed to fetch Azure resources: " .. error, vim.log.levels.ERROR)
-				if M.state.sidebar_open then
-					ui.show_error(error)
-				end
-				return
-			end
-
+		completed_requests = completed_requests + 1
+		if error then
+			vim.schedule(function()
+				vim.notify("Failed to fetch Azure resources: " .. error, vim.log.levels.WARN)
+			end)
+		else
 			M.state.resources = resources
+			resource_count = #resources
+		end
 
-			-- Update sidebar if open
-			if M.state.sidebar_open then
-				ui.update_sidebar(resources)
-			end
+		-- Check if both requests are complete
+		if completed_requests == total_requests then
+			M._refresh_complete(resource_count, ad_count, callback)
+		end
+	end)
 
-			vim.notify("Refreshed " .. #resources .. " Azure resources", vim.log.levels.INFO)
+	-- Get Azure AD objects if enabled
+	local options = config.get()
+	if options.azure_ad.enabled then
+		azure_ad.check_ad_permissions(function(has_permission, permission_error)
+			if not has_permission then
+				vim.schedule(function()
+					vim.notify("Azure AD access: " .. permission_error, vim.log.levels.WARN)
+				end)
+				completed_requests = completed_requests + 1
+			else
+				-- Get all AD objects
+				M._fetch_ad_objects(function(count, fetch_error)
+					completed_requests = completed_requests + 1
+					if fetch_error then
+						vim.schedule(function()
+							vim.notify("Failed to fetch AD objects: " .. fetch_error, vim.log.levels.WARN)
+						end)
+					else
+						ad_count = count
+					end
 
-			if callback then
-				callback()
+					-- Check if both requests are complete
+					if completed_requests == total_requests then
+						M._refresh_complete(resource_count, ad_count, callback)
+					end
+				end)
 			end
 		end)
+	else
+		completed_requests = completed_requests + 1
+		if completed_requests == total_requests then
+			M._refresh_complete(resource_count, ad_count, callback)
+		end
+	end
+end
+
+-- Fetch all Azure AD objects
+function M._fetch_ad_objects(callback)
+	local completed_requests = 0
+	local total_requests = 4 -- Apps, Users, Groups, Roles
+	local ad_objects = {}
+	local total_count = 0
+
+	local function check_complete()
+		if completed_requests == total_requests then
+			callback(total_count, nil)
+		end
+	end
+
+	-- Get app registrations
+	azure_ad.get_app_registrations(function(apps, error)
+		completed_requests = completed_requests + 1
+		if not error then
+			ad_objects.app_registrations = apps
+			total_count = total_count + #apps
+		end
+		check_complete()
+	end)
+
+	-- Get users
+	azure_ad.get_users(function(users, error)
+		completed_requests = completed_requests + 1
+		if not error then
+			ad_objects.users = users
+			total_count = total_count + #users
+		end
+		check_complete()
+	end)
+
+	-- Get groups
+	azure_ad.get_groups(function(groups, error)
+		completed_requests = completed_requests + 1
+		if not error then
+			ad_objects.groups = groups
+			total_count = total_count + #groups
+		end
+		check_complete()
+	end)
+
+	-- Get role assignments
+	azure_ad.get_role_assignments(function(roles, error)
+		completed_requests = completed_requests + 1
+		if not error then
+			ad_objects.role_assignments = roles
+			total_count = total_count + #roles
+		end
+		check_complete()
+	end)
+
+	M.state.ad_objects = ad_objects
+end
+
+-- Complete refresh operation
+function M._refresh_complete(resource_count, ad_count, callback)
+	M.state.loading = false
+
+	-- Use vim.schedule to defer notifications out of fast event context
+	vim.schedule(function()
+		-- Update sidebar if open
+		if M.state.sidebar_open then
+			ui.update_sidebar(M.state.resources, M.state.ad_objects)
+		end
+
+		-- Show combined notification
+		local messages = {}
+		if resource_count > 0 then
+			table.insert(messages, resource_count .. " Azure resources")
+		end
+		if ad_count > 0 then
+			table.insert(messages, ad_count .. " AD objects")
+		end
+
+		if #messages > 0 then
+			vim.notify("Refreshed " .. table.concat(messages, " and "), vim.log.levels.INFO)
+		end
+
+		if callback then
+			callback()
+		end
 	end)
 end
 
@@ -145,6 +263,47 @@ function M.search_resources()
 	telescope_extension.search_resources(M.state.resources)
 end
 
+-- Search Azure AD objects with telescope
+function M.search_ad_objects()
+	if not M.state.ad_objects or M.count_ad_objects(M.state.ad_objects) == 0 then
+		vim.schedule(function()
+			vim.notify("No AD objects loaded. Refreshing...", vim.log.levels.INFO)
+		end)
+		M.refresh_resources(function()
+			telescope_extension.search_ad_objects(M.state.ad_objects)
+		end)
+		return
+	end
+
+	telescope_extension.search_ad_objects(M.state.ad_objects)
+end
+
+-- Count AD objects
+function M.count_ad_objects(ad_objects)
+	if not ad_objects then
+		return 0
+	end
+	
+	local count = 0
+	if ad_objects.app_registrations then
+		count = count + #ad_objects.app_registrations
+	end
+	if ad_objects.users then
+		count = count + #ad_objects.users
+	end
+	if ad_objects.groups then
+		count = count + #ad_objects.groups
+	end
+	if ad_objects.role_assignments then
+		count = count + #ad_objects.role_assignments
+	end
+	if ad_objects.service_principals then
+		count = count + #ad_objects.service_principals
+	end
+	
+	return count
+end
+
 -- Show resource details
 function M.show_resource_details(resource)
 	azure.get_resource_details(resource, function(details, error)
@@ -157,6 +316,43 @@ function M.show_resource_details(resource)
 			ui.show_resource_details(resource, details)
 		end)
 	end)
+end
+
+-- Show Azure AD object details
+function M.show_ad_object_details(ad_object)
+	local details_function = nil
+	
+	-- Choose appropriate function based on AD object type
+	if ad_object.type == "Microsoft.AzureAD/appRegistrations" then
+		details_function = azure_ad.get_app_registration_details
+	elseif ad_object.type == "Microsoft.AzureAD/users" then
+		details_function = azure_ad.get_user_details
+	elseif ad_object.type == "Microsoft.AzureAD/groups" then
+		details_function = azure_ad.get_group_members
+	elseif ad_object.type == "Microsoft.AzureAD/roleAssignments" then
+		-- For role assignments, we have enough data from the list
+		ui.show_ad_object_details(ad_object, { properties = ad_object.properties })
+		return
+	else
+		-- Fallback - show basic info without additional API call
+		ui.show_ad_object_details(ad_object, { properties = ad_object.properties })
+		return
+	end
+
+	if details_function then
+		details_function(ad_object, function(details, error)
+			vim.schedule(function()
+				if error then
+					vim.notify("Failed to get AD object details: " .. error, vim.log.levels.ERROR)
+					-- Show basic info anyway
+					ui.show_ad_object_details(ad_object, { properties = ad_object.properties })
+					return
+				end
+
+				ui.show_ad_object_details(ad_object, details)
+			end)
+		end)
+	end
 end
 
 -- Show resource metrics

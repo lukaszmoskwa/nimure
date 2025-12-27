@@ -14,6 +14,10 @@ Nimure is a Neovim plugin that provides a beautiful sidebar interface to explore
 - 💰 **Cost Tracking**: View Azure subscription costs and spending breakdown by service using Azure Cost Management API
 - 🌍 **Multi-Currency Support**: Automatically detects and displays costs in your Azure billing currency (USD, EUR, GBP, JPY, etc.)
 - 📊 **Cost Visualization**: ASCII charts showing daily costs and service spending over time
+- 🔐 **Azure AD Integration**: Browse and manage Azure Active Directory objects (app registrations, users, groups, roles)
+- 📱 **App Registrations**: View Azure AD application registrations with properties and permissions
+- 👥 **Users & Groups**: Browse Azure AD users and groups with membership information
+- 🔑 **Role Management**: View Azure RBAC role assignments across your subscription
 - 📋 **Copy IDs**: Quick copy resource IDs and names to clipboard
 - 🔄 **Manual Refresh**: Refresh resource list on demand
 - ⚡ **Async**: Non-blocking operations using plenary.nvim
@@ -102,6 +106,12 @@ require("nimure").setup({
     search = "/",
     costs = "c", -- View subscription costs
     cost_breakdown = "C", -- View detailed cost breakdown
+    -- Azure AD specific keymaps
+    show_app_details = "a", -- Show app registration details
+    show_user_details = "u", -- Show user details
+    show_group_members = "g", -- Show group members
+    show_role_details = "r", -- Show role assignment details
+    ad_search = "S", -- Search Azure AD objects
   },
   
   -- Cost tracking configuration
@@ -112,6 +122,20 @@ require("nimure").setup({
     show_service_breakdown = true,
     chart_height = 10, -- Height of ASCII charts
     -- Currency symbols are now auto-detected from Azure billing data
+  },
+  
+  -- Azure AD configuration
+  azure_ad = {
+    enabled = true,
+    include_app_registrations = true,
+    include_users = true,
+    include_groups = true,
+    include_role_assignments = true,
+    include_service_principals = false, -- Optional: can be resource intensive
+    -- Filter options for large environments
+    user_filters = {}, -- Filter by UPN domain, etc.
+    group_filters = {},
+    app_filters = {},
   },
   
   -- Cache and rate limiting configuration
@@ -145,19 +169,28 @@ require("nimure").setup({
 - `:NimureCostsCustom <start-date> <end-date>` - Show costs for custom date range
   - Example: `:NimureCostsCustom 2024-01-01 2024-01-31`
 
+### Azure AD Commands
+
+- `:NimureADSearch` - Search all Azure AD objects with Telescope
+- `:NimureADApps` - Search Azure AD app registrations
+- `:NimureADUsers` - Search Azure AD users
+- `:NimureADGroups` - Search Azure AD groups
+- `:NimureADRoles` - Search Azure AD role assignments
+
 ### Cache Management Commands
 
-- `:NimureClearCache` - Clear cached Azure data to force fresh API calls
+- `:NimureClearCache` - Clear cached Azure and Azure AD data to force fresh API calls
 
 ### Default Keybindings
 
 In the sidebar:
-- `<CR>` - View resource details
+- `<CR>` - View resource/AD object details
 - `m` - View resource metrics
-- `y` - Copy resource ID to clipboard
-- `Y` - Copy resource name to clipboard
+- `y` - Copy resource/AD object ID to clipboard
+- `Y` - Copy resource/AD object name to clipboard
 - `r` - Refresh resource list
 - `/` - Search resources with Telescope
+- `S` - Search Azure AD objects with Telescope
 - `c` - View subscription cost overview
 - `C` - View detailed cost breakdown
 - `R` - View costs for selected resource
@@ -190,12 +223,55 @@ require("nimure").setup({
 })
 ```
 
+## 🔐 Azure AD Features
+
+Nimure now includes comprehensive Azure Active Directory integration, allowing you to browse and manage AD objects alongside your Azure resources.
+
+### Supported AD Objects
+
+- **App Registrations**: View Azure AD application registrations with properties like Application ID, reply URLs, and permissions
+- **Users**: Browse user accounts with details like UPN, email, department, and account status
+- **Groups**: View security and distribution groups with membership information
+- **Role Assignments**: Browse Azure RBAC role assignments across your subscription with scope and principal details
+
+### Azure AD Permissions
+
+To access Azure AD data, you need appropriate permissions:
+- **Application.Read.All** or **Directory.Read.All** for app registrations
+- **User.Read.All** for user listings  
+- **Group.Read.All** for group listings
+- **RoleAssignment.ReadWrite.Directory** for role assignments
+
+The plugin will check permissions on startup and provide helpful error messages if access is denied.
+
+### Configuration
+
+You can customize which AD objects to display in your configuration:
+
+```lua
+require("nimure").setup({
+  azure_ad = {
+    enabled = true, -- Enable/disable Azure AD features
+    include_app_registrations = true,
+    include_users = true, 
+    include_groups = true,
+    include_role_assignments = true,
+    include_service_principals = false, -- Resource intensive, disabled by default
+    -- Filters for large environments
+    user_filters = { "*.example.com" }, -- Only show users from specific domains
+    group_filters = {},
+    app_filters = {},
+  },
+})
+```
+
 ### Performance Tips
 
 - **Use Caching**: Data is cached for 5 minutes by default to improve performance
 - **Avoid Rapid Requests**: Don't call multiple cost commands simultaneously  
 - **Custom Date Ranges**: Use smaller date ranges for faster responses
 - **Resource Costs**: Resource-specific costs use resource group aggregation for better performance
+- **Large AD Environments**: Consider using filters if you have thousands of AD objects
 
 ### Common Issues
 
@@ -203,6 +279,8 @@ require("nimure").setup({
 2. **"Not authenticated"**: Run `az login` to authenticate with Azure
 3. **"No subscription found"**: Run `az account show` to verify your subscription
 4. **Empty resource list**: Check your subscription has resources or verify resource group filters
+5. **"Insufficient permissions"**: Ensure you have proper Azure AD permissions (see above)
+6. **"Too Many Requests"**: The plugin includes rate limiting; consider increasing intervals in config
 
 ## 🛠️ Development Setup
 

@@ -358,4 +358,191 @@ function M.switch_subscription()
 		end)
 end
 
+-- Search Azure AD objects
+function M.search_ad_objects(ad_objects)
+	if not ad_objects then
+		vim.schedule(function()
+			vim.notify("No AD objects to search", vim.log.levels.WARN)
+		end)
+		return
+	end
+
+	-- Flatten all AD objects into a single list for searching
+	local all_objects = {}
+	
+	if ad_objects.app_registrations then
+		for _, app in ipairs(ad_objects.app_registrations) do
+			table.insert(all_objects, app)
+		end
+	end
+	
+	if ad_objects.users then
+		for _, user in ipairs(ad_objects.users) do
+			table.insert(all_objects, user)
+		end
+	end
+	
+	if ad_objects.groups then
+		for _, group in ipairs(ad_objects.groups) do
+			table.insert(all_objects, group)
+		end
+	end
+	
+	if ad_objects.role_assignments then
+		for _, role in ipairs(ad_objects.role_assignments) do
+			table.insert(all_objects, role)
+		end
+	end
+
+	if #all_objects == 0 then
+		vim.schedule(function()
+			vim.notify("No AD objects to search", vim.log.levels.WARN)
+		end)
+		return
+	end
+
+	local opts = {}
+
+	pickers
+		.new(opts, {
+			prompt_title = "Azure AD Objects",
+			finder = finders.new_table({
+				results = all_objects,
+				entry_maker = function(ad_object)
+					local icon = config.get_icon(ad_object.type)
+					local short_type = ad_object.type:gsub("Microsoft%.AzureAD/", "")
+					local display_name = string.format(
+						"%s%s (%s)",
+						icon,
+						ad_object.name,
+						short_type
+					)
+
+					return {
+						value = ad_object,
+						display = display_name,
+						ordinal = ad_object.name
+							.. " "
+							.. ad_object.type
+							.. " "
+							.. (ad_object.properties.user_principal_name or "")
+							.. " "
+							.. (ad_object.properties.app_id or ""),
+					}
+				end,
+			}),
+			sorter = conf.generic_sorter(opts),
+			previewer = M.create_ad_object_previewer(),
+			attach_mappings = function(prompt_bufnr, map)
+				actions.select_default:replace(function()
+					actions.close(prompt_bufnr)
+					local selection = action_state.get_selected_entry()
+					if selection then
+						require("nimure").show_ad_object_details(selection.value)
+					end
+				end)
+
+				-- Copy object ID
+				map("i", "<C-y>", function()
+					local selection = action_state.get_selected_entry()
+					if selection then
+						require("nimure").copy_resource_id(selection.value)
+					end
+				end)
+
+				-- Copy object name
+				map("i", "<C-n>", function()
+					local selection = action_state.get_selected_entry()
+					if selection then
+						require("nimure").copy_resource_name(selection.value)
+					end
+				end)
+
+				return true
+			end,
+		})
+		:find()
+end
+
+-- Create AD object previewer
+function M.create_ad_object_previewer()
+	return previewers.new_buffer_previewer({
+		title = "Azure AD Object Details",
+		define_preview = function(self, entry, status)
+			local ad_object = entry.value
+			local lines = {}
+
+			-- Basic info
+			table.insert(lines, "Name: " .. ad_object.name)
+			table.insert(lines, "Type: " .. ad_object.type:gsub("Microsoft%.AzureAD/", ""))
+			table.insert(lines, "Location: " .. ad_object.location)
+			table.insert(lines, "")
+
+			-- Object-specific details
+			if ad_object.properties then
+				if ad_object.type == "Microsoft.AzureAD/appRegistrations" then
+					table.insert(lines, "Application ID: " .. (ad_object.properties.app_id or "N/A"))
+					table.insert(lines, "Object ID: " .. (ad_object.properties.object_id or "N/A"))
+					if ad_object.properties.sign_in_audience then
+						table.insert(lines, "Sign-in Audience: " .. ad_object.properties.sign_in_audience)
+					end
+
+				elseif ad_object.type == "Microsoft.AzureAD/users" then
+					table.insert(lines, "User Principal Name: " .. (ad_object.properties.user_principal_name or "N/A"))
+					table.insert(lines, "Object ID: " .. (ad_object.properties.object_id or "N/A"))
+					table.insert(lines, "Email: " .. (ad_object.properties.mail or "N/A"))
+					table.insert(lines, "Account Enabled: " .. tostring(ad_object.properties.account_enabled or false))
+					if ad_object.properties.job_title then
+						table.insert(lines, "Job Title: " .. ad_object.properties.job_title)
+					end
+					if ad_object.properties.department then
+						table.insert(lines, "Department: " .. ad_object.properties.department)
+					end
+
+				elseif ad_object.type == "Microsoft.AzureAD/groups" then
+					table.insert(lines, "Object ID: " .. (ad_object.properties.object_id or "N/A"))
+					table.insert(lines, "Mail: " .. (ad_object.properties.mail or "N/A"))
+					table.insert(lines, "Security Enabled: " .. tostring(ad_object.properties.security_enabled or false))
+					table.insert(lines, "Mail Enabled: " .. tostring(ad_object.properties.mail_enabled or false))
+					if ad_object.properties.description then
+						table.insert(lines, "Description: " .. ad_object.properties.description)
+					end
+
+				elseif ad_object.type == "Microsoft.AzureAD/roleAssignments" then
+					table.insert(lines, "Role: " .. (ad_object.properties.role_definition_name or "N/A"))
+					table.insert(lines, "Principal: " .. (ad_object.properties.principal_name or "N/A"))
+					table.insert(lines, "Principal Type: " .. (ad_object.properties.principal_type or "N/A"))
+					table.insert(lines, "Scope: " .. (ad_object.properties.scope or "N/A"))
+					table.insert(lines, "Created On: " .. (ad_object.properties.created_on or "N/A"))
+				end
+			end
+
+			table.insert(lines, "")
+			table.insert(lines, "Resource ID:")
+			table.insert(lines, ad_object.id)
+			table.insert(lines, "")
+
+			local txt = [[
+Actions:
+  <Enter> - Show detailed information
+  <C-y>   - Copy object ID
+  <C-n>   - Copy object name
+]]
+
+			for line in txt:gmatch("[^\r\n]+") do
+				table.insert(lines, line)
+			end
+
+			-- Remove trailing newlines
+			for i, line in ipairs(lines) do
+				if line:sub(-1) == "\n" then
+					lines[i] = line:sub(1, -2)
+				end
+			end
+
+			vim.api.nvim_buf_set_lines(self.state.bufnr, 0, -1, false, lines)
+		end,
+	})
+end
+
 return M

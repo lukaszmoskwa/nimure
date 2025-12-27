@@ -50,6 +50,12 @@ M.defaults = {
 		costs = "c", -- View costs
 		cost_breakdown = "C", -- View detailed cost breakdown
 		switch_subscription = "s", -- Switch Azure subscription
+		-- Azure AD specific keymaps
+		show_app_details = "a", -- Show app registration details
+		show_user_details = "u", -- Show user details
+		show_group_members = "g", -- Show group members
+		show_role_details = "r", -- Show role assignment details
+		ad_search = "S", -- Search Azure AD objects
 	},
 
 	-- Debug mode
@@ -75,6 +81,20 @@ M.defaults = {
 		enabled = true, -- Enable rate limiting to prevent API throttling
 		min_interval_ms = 1000, -- Minimum 1 second between requests
 		max_requests_per_minute = 20, -- Conservative API rate limit
+	},
+
+	-- Azure AD configuration
+	azure_ad = {
+		enabled = true,
+		include_app_registrations = true,
+		include_users = true,
+		include_groups = true,
+		include_role_assignments = true,
+		include_service_principals = false, -- Optional: can be resource intensive
+		-- Filter options for large environments
+		user_filters = {}, -- Filter by UPN domain, etc.
+		group_filters = {},
+		app_filters = {},
 	},
 }
 
@@ -124,6 +144,13 @@ M.icons = {
 
 	-- Resource Groups
 	["Microsoft.Resources/resourceGroups"] = "📁",
+
+	-- Azure AD
+	["Microsoft.AzureAD/appRegistrations"] = "📱",
+	["Microsoft.AzureAD/users"] = "👤",
+	["Microsoft.AzureAD/groups"] = "👥",
+	["Microsoft.AzureAD/roleAssignments"] = "🔑",
+	["Microsoft.AzureAD/servicePrincipals"] = "🎭",
 
 	-- Default
 	default = "📄",

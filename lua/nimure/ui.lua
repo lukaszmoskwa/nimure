@@ -116,7 +116,11 @@ function M.setup_sidebar_keymaps()
 		if M.tree then
 			local ok, node = pcall(M.tree.get_node, M.tree)
 			if ok and node and node.resource then
-				require("nimure").show_resource_details(node.resource)
+				if node.resource.type:find("Microsoft%.AzureAD") then
+					require("nimure").show_ad_object_details(node.resource)
+				else
+					require("nimure").show_resource_details(node.resource)
+				end
 			end
 		end
 	end, { buffer = bufnr, desc = "Show resource details" })
@@ -131,7 +135,7 @@ function M.setup_sidebar_keymaps()
 		end
 	end, { buffer = bufnr, desc = "Show resource metrics" })
 
-	-- Show resource costs (using 'C' when focused on a specific resource)
+	-- Show resource costs (using 'R' when focused on a specific resource)
 	vim.keymap.set("n", "R", function()
 		if M.tree then
 			local ok, node = pcall(M.tree.get_node, M.tree)
@@ -166,6 +170,11 @@ function M.setup_sidebar_keymaps()
 		require("nimure").search_resources()
 	end, { buffer = bufnr, desc = "Search resources" })
 
+	-- Azure AD specific keymaps
+	vim.keymap.set("n", options.keymaps.ad_search, function()
+		require("nimure").search_ad_objects()
+	end, { buffer = bufnr, desc = "Search Azure AD objects" })
+
 	-- Show costs
 	vim.keymap.set("n", options.keymaps.costs, function()
 		require("nimure").show_subscription_costs()
@@ -180,7 +189,7 @@ function M.setup_sidebar_keymaps()
 	vim.keymap.set("n", "<Space>", function()
 		if M.tree then
 			local ok, node = pcall(M.tree.get_node, M.tree)
-			if ok and node and node.resource_group then
+			if ok and node and (node.resource_group or node.azure_ad_section or node.ad_category) then
 				if node:is_expanded() then
 					node:collapse()
 				else
@@ -189,39 +198,39 @@ function M.setup_sidebar_keymaps()
 				M.tree:render()
 			end
 		end
-	end, { buffer = bufnr, desc = "Expand/collapse resource group" })
+	end, { buffer = bufnr, desc = "Expand/collapse section" })
 
 	-- Arrow key navigation
 	vim.keymap.set("n", "<Right>", function()
 		if M.tree then
 			local ok, node = pcall(M.tree.get_node, M.tree)
-			if ok and node and node.resource_group and not node:is_expanded() then
+			if ok and node and (node.resource_group or node.azure_ad_section or node.ad_category) and not node:is_expanded() then
 				node:expand()
 				M.tree:render()
 			end
 		end
-	end, { buffer = bufnr, desc = "Expand resource group" })
+	end, { buffer = bufnr, desc = "Expand section" })
 
 	vim.keymap.set("n", "<Left>", function()
 		if M.tree then
 			local ok, node = pcall(M.tree.get_node, M.tree)
-			if ok and node and node.resource_group and node:is_expanded() then
+			if ok and node and (node.resource_group or node.azure_ad_section or node.ad_category) and node:is_expanded() then
 				node:collapse()
 				M.tree:render()
 			end
 		end
-	end, { buffer = bufnr, desc = "Collapse resource group" })
+	end, { buffer = bufnr, desc = "Collapse section" })
 end
 
--- Update sidebar with resources
-function M.update_sidebar(resources)
+-- Update sidebar with resources and AD objects
+function M.update_sidebar(resources, ad_objects)
 	if not M.sidebar then
 		return
 	end
 
 	-- Use vim.schedule to ensure we're not in a fast event context
 	vim.schedule(function()
-		local tree_nodes = M.build_tree_nodes(resources)
+		local tree_nodes = M.build_tree_nodes(resources, ad_objects)
 
 		M.tree = NuiTree({
 			winid = M.sidebar.winid,
@@ -229,16 +238,30 @@ function M.update_sidebar(resources)
 			prepare_node = function(node)
 				local line = NuiLine()
 
-				-- Add expand/collapse indicator for resource groups
-				if node.resource_group then
+				-- Handle different node types
+				if node.azure_ad_section then
+					-- Azure AD section header
+					local expanded = node:is_expanded()
+					local indicator = expanded and "▼ " or "▶ "
+					line:append(indicator, "Directory")
+					line:append("🔐 ", "Directory")
+				elseif node.resource_group then
+					-- Resource group header
 					local expanded = node:is_expanded()
 					local indicator = expanded and "▼ " or "▶ "
 					line:append(indicator, "Directory")
 					line:append("📁 ", "Directory")
-				else
-					-- Add indent for resources under resource groups
+				elseif node.ad_category then
+					-- AD category (Apps, Users, Groups, Roles)
 					line:append("  ")
-					-- Add icon for individual resources
+					local icon = config.get_icon(node.resource and node.resource.type or "default")
+					if icon ~= "" then
+						line:append(icon)
+					end
+				else
+					-- Regular resource or AD object
+					line:append("    ")
+					-- Add icon for individual resources/AD objects
 					local icon = config.get_icon(node.resource and node.resource.type or "default")
 					if icon ~= "" then
 						line:append(icon)
@@ -251,10 +274,10 @@ function M.update_sidebar(resources)
 				-- Add type/location info if configured for resources
 				local options = config.get()
 				if node.resource then
-					if options.ui.show_type then
+					if options.ui.show_type and not node.ad_category then
 						line:append(" (" .. utils.get_short_type(node.resource.type) .. ")", "Comment")
 					end
-					if options.ui.show_location then
+					if options.ui.show_location and node.resource.location ~= "Azure AD" then
 						line:append(" [" .. node.resource.location .. "]", "Comment")
 					end
 				end
@@ -265,8 +288,15 @@ function M.update_sidebar(resources)
 
 		M.tree:render()
 
+		-- Calculate total count
+		local resource_count = resources and #resources or 0
+		local ad_count = M.count_ad_objects(ad_objects)
+		local total_text = resource_count > 0 and ad_count > 0 
+			and string.format(" (%d resources, %d AD objects)", resource_count, ad_count)
+			or string.format(" (%d resources)", resource_count)
+
 		-- Update buffer name safely
-		pcall(vim.api.nvim_buf_set_name, M.sidebar.bufnr, "Nimure: Azure Resources (" .. #resources .. ")")
+		pcall(vim.api.nvim_buf_set_name, M.sidebar.bufnr, "Nimure: Azure Resources" .. total_text)
 	end)
 end
 
@@ -275,48 +305,188 @@ local function make_unique_id(resource)
 	return resource.id or (resource.resource_group .. "-" .. resource.name)
 end
 
--- Build tree nodes from resources
-function M.build_tree_nodes(resources)
+-- Build tree nodes from resources and AD objects
+function M.build_tree_nodes(resources, ad_objects)
 	local nodes = {}
-	local resource_groups = {}
 	local options = config.get()
 
-	-- Group resources by resource group
-	for _, resource in ipairs(resources) do
-		local rg = resource.resource_group
-		if not resource_groups[rg] then
-			resource_groups[rg] = {}
+	-- Add Azure Resources section
+	if resources and #resources > 0 then
+		local resource_groups = {}
+		
+		-- Group resources by resource group
+		for _, resource in ipairs(resources) do
+			local rg = resource.resource_group
+			if not resource_groups[rg] then
+				resource_groups[rg] = {}
+			end
+			table.insert(resource_groups[rg], resource)
 		end
-		table.insert(resource_groups[rg], resource)
+
+		-- Create resource nodes
+		for rg_name, rg_resources in pairs(resource_groups) do
+			-- Create child nodes for resources first
+			local child_nodes = {}
+			for _, resource in ipairs(rg_resources) do
+				local resource_node = NuiTree.Node({
+					id = make_unique_id(resource),
+					text = resource.name,
+					resource = resource,
+				})
+				table.insert(child_nodes, resource_node)
+			end
+
+			-- Create resource group node with children (expanded by default)
+			local rg_node = NuiTree.Node({
+				id = "rg-" .. rg_name,
+				text = rg_name,
+				resource_group = true,
+			}, child_nodes)
+
+			-- Expand resource group by default
+			rg_node:expand()
+
+			table.insert(nodes, rg_node)
+		end
 	end
 
-	-- Create tree structure
-	for rg_name, rg_resources in pairs(resource_groups) do
-		-- Create child nodes for resources first
-		local child_nodes = {}
-		for _, resource in ipairs(rg_resources) do
-			local resource_node = NuiTree.Node({
-				id = make_unique_id(resource),
-				text = resource.name,
-				resource = resource,
-			})
-			table.insert(child_nodes, resource_node)
+	-- Add Azure AD section if enabled and we have AD objects
+	if options.azure_ad.enabled and ad_objects then
+		local ad_nodes = M.build_ad_tree_nodes(ad_objects)
+		if #ad_nodes > 0 then
+			table.insert(nodes, NuiTree.Node({ text = "" }, {})) -- Separator
+			
+			local ad_section_node = NuiTree.Node({
+				id = "azure-ad-section",
+				text = "Azure Active Directory",
+				azure_ad_section = true,
+			}, ad_nodes)
+			
+			-- Expand AD section by default
+			ad_section_node:expand()
+			table.insert(nodes, ad_section_node)
 		end
-
-		-- Create resource group node with children (expanded by default)
-		local rg_node = NuiTree.Node({
-			id = "rg-" .. rg_name,
-			text = rg_name,
-			resource_group = true,
-		}, child_nodes)
-
-		-- Expand the resource group by default
-		rg_node:expand()
-
-		table.insert(nodes, rg_node)
 	end
 
 	return nodes
+end
+
+-- Build Azure AD tree nodes
+function M.build_ad_tree_nodes(ad_objects)
+	local nodes = {}
+	local options = config.get()
+
+	-- App Registrations
+	if options.azure_ad.include_app_registrations and ad_objects.app_registrations and #ad_objects.app_registrations > 0 then
+		local app_nodes = {}
+		for _, app in ipairs(ad_objects.app_registrations) do
+			local app_node = NuiTree.Node({
+				id = make_unique_id(app),
+				text = app.name,
+				resource = app,
+			})
+			table.insert(app_nodes, app_node)
+		end
+
+		local apps_category_node = NuiTree.Node({
+			id = "ad-app-registrations",
+			text = "App Registrations (" .. #ad_objects.app_registrations .. ")",
+			ad_category = true,
+		}, app_nodes)
+
+		table.insert(nodes, apps_category_node)
+	end
+
+	-- Users
+	if options.azure_ad.include_users and ad_objects.users and #ad_objects.users > 0 then
+		local user_nodes = {}
+		for _, user in ipairs(ad_objects.users) do
+			local user_node = NuiTree.Node({
+				id = make_unique_id(user),
+				text = user.name,
+				resource = user,
+			})
+			table.insert(user_nodes, user_node)
+		end
+
+		local users_category_node = NuiTree.Node({
+			id = "ad-users",
+			text = "Users (" .. #ad_objects.users .. ")",
+			ad_category = true,
+		}, user_nodes)
+
+		table.insert(nodes, users_category_node)
+	end
+
+	-- Groups
+	if options.azure_ad.include_groups and ad_objects.groups and #ad_objects.groups > 0 then
+		local group_nodes = {}
+		for _, group in ipairs(ad_objects.groups) do
+			local group_node = NuiTree.Node({
+				id = make_unique_id(group),
+				text = group.name,
+				resource = group,
+			})
+			table.insert(group_nodes, group_node)
+		end
+
+		local groups_category_node = NuiTree.Node({
+			id = "ad-groups",
+			text = "Groups (" .. #ad_objects.groups .. ")",
+			ad_category = true,
+		}, group_nodes)
+
+		table.insert(nodes, groups_category_node)
+	end
+
+	-- Role Assignments
+	if options.azure_ad.include_role_assignments and ad_objects.role_assignments and #ad_objects.role_assignments > 0 then
+		local role_nodes = {}
+		for _, role in ipairs(ad_objects.role_assignments) do
+			local role_node = NuiTree.Node({
+				id = make_unique_id(role),
+				text = role.name,
+				resource = role,
+			})
+			table.insert(role_nodes, role_node)
+		end
+
+		local roles_category_node = NuiTree.Node({
+			id = "ad-role-assignments",
+			text = "Role Assignments (" .. #ad_objects.role_assignments .. ")",
+			ad_category = true,
+		}, role_nodes)
+
+		table.insert(nodes, roles_category_node)
+	end
+
+	return nodes
+end
+
+-- Count total AD objects
+function M.count_ad_objects(ad_objects)
+	if not ad_objects then
+		return 0
+	end
+	
+	local count = 0
+	if ad_objects.app_registrations then
+		count = count + #ad_objects.app_registrations
+	end
+	if ad_objects.users then
+		count = count + #ad_objects.users
+	end
+	if ad_objects.groups then
+		count = count + #ad_objects.groups
+	end
+	if ad_objects.role_assignments then
+		count = count + #ad_objects.role_assignments
+	end
+	if ad_objects.service_principals then
+		count = count + #ad_objects.service_principals
+	end
+	
+	return count
 end
 
 -- Show loading state
@@ -590,7 +760,6 @@ function M.show_cost_breakdown(cost_data)
 	local content = {}
 
 	-- Add summary header
-	local costs = require("nimure.costs")
 	local currency_symbol = costs.get_currency_symbol(cost_data.currency)
 	table.insert(content, string.format("💰 Detailed Cost Breakdown"))
 	table.insert(content, string.rep("═", 60))
@@ -712,6 +881,116 @@ function M.show_resource_cost_details(resource_costs)
 			M.details_popup = nil
 		end, { buffer = M.details_popup.bufnr })
 	end
+end
+
+-- Show Azure AD object details
+function M.show_ad_object_details(ad_object)
+	if M.details_popup then
+		M.details_popup:unmount()
+	end
+
+	local content = M.format_ad_object_details(ad_object)
+
+	M.details_popup = NuiPopup({
+		enter = true,
+		focusable = true,
+		border = {
+			style = config.get().sidebar.border,
+			text = {
+				top = " 🔐 Azure AD Details ",
+			},
+		},
+		position = "50%",
+		size = {
+			width = 80,
+			height = math.min(60, #content + 5),
+		},
+		relative = "editor",
+		buf_options = {},
+		win_options = {
+			wrap = true,
+		},
+	})
+
+	M.details_popup:mount()
+
+	-- Set content
+	vim.api.nvim_buf_set_lines(M.details_popup.bufnr, 0, -1, false, content)
+
+	-- Make buffer readonly after setting content
+	vim.api.nvim_buf_set_option(M.details_popup.bufnr, "modifiable", false)
+	vim.api.nvim_buf_set_option(M.details_popup.bufnr, "readonly", true)
+
+	-- Close with q or Escape
+	local close_keys = { "q", "<Esc>" }
+	for _, key in ipairs(close_keys) do
+		vim.keymap.set("n", key, function()
+			M.details_popup:unmount()
+			M.details_popup = nil
+		end, { buffer = M.details_popup.bufnr })
+	end
+end
+
+-- Format Azure AD object details for display
+function M.format_ad_object_details(ad_object)
+	local lines = {}
+
+	table.insert(lines, "Name: " .. ad_object.name)
+	table.insert(lines, "Type: " .. ad_object.type)
+	table.insert(lines, "Location: " .. ad_object.location)
+	table.insert(lines, "")
+
+	if ad_object.properties then
+		-- Display different properties based on AD object type
+		if ad_object.type == "Microsoft.AzureAD/appRegistrations" then
+			table.insert(lines, "Application ID: " .. (ad_object.properties.app_id or "N/A"))
+			table.insert(lines, "Object ID: " .. (ad_object.properties.object_id or "N/A"))
+			table.insert(lines, "Sign-in Audience: " .. (ad_object.properties.sign_in_audience or "N/A"))
+			if ad_object.properties.reply_urls and #ad_object.properties.reply_urls > 0 then
+				table.insert(lines, "Reply URLs:")
+				for _, url in ipairs(ad_object.properties.reply_urls) do
+					table.insert(lines, "  " .. url)
+				end
+			end
+
+		elseif ad_object.type == "Microsoft.AzureAD/users" then
+			table.insert(lines, "User Principal Name: " .. (ad_object.properties.user_principal_name or "N/A"))
+			table.insert(lines, "Object ID: " .. (ad_object.properties.object_id or "N/A"))
+			table.insert(lines, "Email: " .. (ad_object.properties.mail or "N/A"))
+			table.insert(lines, "Account Enabled: " .. tostring(ad_object.properties.account_enabled or false))
+			if ad_object.properties.job_title then
+				table.insert(lines, "Job Title: " .. ad_object.properties.job_title)
+			end
+			if ad_object.properties.department then
+				table.insert(lines, "Department: " .. ad_object.properties.department)
+			end
+
+		elseif ad_object.type == "Microsoft.AzureAD/groups" then
+			table.insert(lines, "Object ID: " .. (ad_object.properties.object_id or "N/A"))
+			table.insert(lines, "Mail: " .. (ad_object.properties.mail or "N/A"))
+			table.insert(lines, "Security Enabled: " .. tostring(ad_object.properties.security_enabled or false))
+			table.insert(lines, "Mail Enabled: " .. tostring(ad_object.properties.mail_enabled or false))
+			if ad_object.properties.description then
+				table.insert(lines, "Description: " .. ad_object.properties.description)
+			end
+
+		elseif ad_object.type == "Microsoft.AzureAD/roleAssignments" then
+			table.insert(lines, "Role: " .. (ad_object.properties.role_definition_name or "N/A"))
+			table.insert(lines, "Principal: " .. (ad_object.properties.principal_name or "N/A"))
+			table.insert(lines, "Principal Type: " .. (ad_object.properties.principal_type or "N/A"))
+			table.insert(lines, "Scope: " .. (ad_object.properties.scope or "N/A"))
+			table.insert(lines, "Created On: " .. (ad_object.properties.created_on or "N/A"))
+		end
+
+		table.insert(lines, "")
+		table.insert(lines, "All Properties:")
+		local props = vim.inspect(ad_object.properties, { indent = "  " })
+		for line in props:gmatch("[^\r\n]+") do
+			table.insert(lines, line)
+		end
+	end
+
+	return lines
 end
 
 -- Close sidebar
