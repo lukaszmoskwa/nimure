@@ -1263,4 +1263,134 @@ function M.get_current_subscription(callback)
 	}):start()
 end
 
+-- Get role assignments for a resource
+function M.get_resource_role_assignments(resource, callback)
+	local stdout = {}
+	local stderr = {}
+	
+	-- Try multiple scopes to ensure we get all assignments
+	local scope = resource.id
+	
+	-- If resource is in a resource group, also check RG and subscription levels
+	if resource.resource_group and resource.type and not string.match(resource.type, "resourceGroups") then
+		-- Build resource group scope
+		local rg_scope = "/subscriptions/" .. string.match(resource.id, "/subscriptions/([^/]+)/") .. "/resourceGroups/" .. resource.resource_group
+		local sub_scope = "/subscriptions/" .. string.match(resource.id, "/subscriptions/([^/]+)/")
+		
+		-- Use the most specific scope but include all
+		scope = resource.id
+	end
+	
+	Job:new({
+		command = "az",
+		args = {
+			"role",
+			"assignment",
+			"list",
+			"--all",
+			"--output", "json"
+		},
+		timeout = config.get().azure.timeout,
+		on_stdout = function(_, line)
+			table.insert(stdout, line)
+		end,
+		on_stderr = function(_, line)
+			table.insert(stderr, line)
+		end,
+		on_exit = function(_, return_val)
+			if return_val ~= 0 then
+				callback(nil, "Failed to get role assignments: " .. table.concat(stderr, "\n"))
+				return
+			end
+			
+			local json_str = table.concat(stdout, "\n")
+			if json_str == "" or json_str == "[]" then
+				callback({}, nil)
+				return
+			end
+			
+			local ok, assignments = pcall(vim.json.decode, json_str)
+			if not ok then
+				callback(nil, "Failed to parse role assignments JSON")
+				return
+			end
+			
+			
+
+			-- Process role assignment data
+			local processed_assignments = {}
+			for _, assignment in ipairs(assignments) do
+				-- Azure CLI returns assignments with properties at top level, not nested
+				-- Filter assignments that are relevant to this resource
+				local is_relevant = false
+				local assignment_scope = assignment.scope or ""
+				
+				-- Check if this assignment applies to our resource or its parent scopes
+				if string.find(assignment_scope, resource.id, 1, true) then
+					is_relevant = true
+				elseif resource.resource_group and resource.id then
+					-- Also check if it's at resource group level that contains this resource
+					local expected_rg_scope = "/subscriptions/" .. string.match(resource.id, "/subscriptions/([^/]+)/") .. "/resourceGroups/" .. resource.resource_group
+					if string.find(assignment_scope, expected_rg_scope, 1, true) then
+						is_relevant = true
+					end
+				end
+				
+				if is_relevant then
+					-- Get principal details with safe access
+					local principal_name = assignment.principalName
+					local principal_type = assignment.principalType or "Unknown"
+					local role_name = assignment.roleDefinitionName or "Unknown"
+					local scope = assignment.scope or "Unknown"
+					
+					-- If no principal name, try to get it from principal ID
+					if not principal_name and assignment.principalId then
+						principal_name = "Unknown Principal (" .. string.sub(assignment.principalId, -8) .. ")"
+					end
+					
+					-- Still no principal name, use a generic placeholder
+					if not principal_name then
+						principal_name = "Unknown Principal"
+					end
+					
+					table.insert(processed_assignments, {
+						id = assignment.id,
+						name = role_name .. " - " .. principal_name,
+						type = "Microsoft.Authorization/roleAssignments",
+						location = "Global",
+						resource_group = resource.resource_group,
+						tags = {},
+						properties = {
+							role_definition_name = role_name,
+							principal_name = principal_name,
+							principal_type = principal_type,
+							principal_id = assignment.principalId,
+							role_definition_id = assignment.roleDefinitionId,
+							scope = scope,
+							created_on = assignment.createdOn,
+							updated_on = assignment.updatedOn,
+							description = assignment.description
+						},
+						resource_name = resource.name,
+						resource_id = resource.id,
+						resource_type = resource.type
+					})
+				end
+			end
+
+			
+
+			-- Sort by role name, then by principal name
+			table.sort(processed_assignments, function(a, b)
+				if a.properties.role_definition_name == b.properties.role_definition_name then
+					return (a.properties.principal_name or "") < (b.properties.principal_name or "")
+				end
+				return a.properties.role_definition_name < b.properties.role_definition_name
+			end)
+			
+			callback(processed_assignments, nil)
+		end,
+	}):start()
+end
+
 return M

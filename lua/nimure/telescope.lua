@@ -92,6 +92,21 @@ function M.search_resources(resources)
 					end
 				end)
 
+				-- Show role assignments
+				map("i", "<C-b>", function()
+					local selection = action_state.get_selected_entry()
+					if selection then
+						require("nimure").show_resource_roles(selection.value)
+					end
+				end)
+
+				map("n", "<C-b>", function()
+					local selection = action_state.get_selected_entry()
+					if selection then
+						require("nimure").show_resource_roles(selection.value)
+					end
+				end)
+
 				return true
 			end,
 		})
@@ -141,11 +156,12 @@ function M.create_resource_previewer()
 				end
 			end
 			local txt = [[
-Actions:
-  <Enter> - Show detailed information
-  <C-y>   - Copy resource ID
-  <C-n>   - Copy resource name
-  <C-m>   - Show metrics
+ Actions:
+   <Enter> - Show detailed information
+   <C-y>   - Copy resource ID
+   <C-n>   - Copy resource name
+   <C-m>   - Show metrics
+   <C-b>   - Show role assignments
 ]]
 
 			for line in txt:gmatch("[^\r\n]+") do
@@ -353,9 +369,9 @@ function M.switch_subscription()
 						return true
 					end,
 				})
-			:find()
+				:find()
 		end)
-		end)
+	end)
 end
 
 -- Search Azure AD objects
@@ -369,25 +385,25 @@ function M.search_ad_objects(ad_objects)
 
 	-- Flatten all AD objects into a single list for searching
 	local all_objects = {}
-	
+
 	if ad_objects.app_registrations then
 		for _, app in ipairs(ad_objects.app_registrations) do
 			table.insert(all_objects, app)
 		end
 	end
-	
+
 	if ad_objects.users then
 		for _, user in ipairs(ad_objects.users) do
 			table.insert(all_objects, user)
 		end
 	end
-	
+
 	if ad_objects.groups then
 		for _, group in ipairs(ad_objects.groups) do
 			table.insert(all_objects, group)
 		end
 	end
-	
+
 	if ad_objects.role_assignments then
 		for _, role in ipairs(ad_objects.role_assignments) do
 			table.insert(all_objects, role)
@@ -411,12 +427,7 @@ function M.search_ad_objects(ad_objects)
 				entry_maker = function(ad_object)
 					local icon = config.get_icon(ad_object.type)
 					local short_type = ad_object.type:gsub("Microsoft%.AzureAD/", "")
-					local display_name = string.format(
-						"%s%s (%s)",
-						icon,
-						ad_object.name,
-						short_type
-					)
+					local display_name = string.format("%s%s (%s)", icon, ad_object.name, short_type)
 
 					return {
 						value = ad_object,
@@ -499,7 +510,6 @@ function M.create_ad_object_previewer()
 					table.insert(lines, "Application ID: " .. safe_str(ad_object.properties.app_id))
 					table.insert(lines, "Object ID: " .. safe_str(ad_object.properties.object_id))
 					table.insert(lines, "Sign-in Audience: " .. safe_str(ad_object.properties.sign_in_audience))
-
 				elseif ad_object.type == "Microsoft.AzureAD/users" then
 					table.insert(lines, "User Principal Name: " .. safe_str(ad_object.properties.user_principal_name))
 					table.insert(lines, "Object ID: " .. safe_str(ad_object.properties.object_id))
@@ -507,14 +517,12 @@ function M.create_ad_object_previewer()
 					table.insert(lines, "Account Enabled: " .. safe_str(ad_object.properties.account_enabled))
 					table.insert(lines, "Job Title: " .. safe_str(ad_object.properties.job_title))
 					table.insert(lines, "Department: " .. safe_str(ad_object.properties.department))
-
 				elseif ad_object.type == "Microsoft.AzureAD/groups" then
 					table.insert(lines, "Object ID: " .. safe_str(ad_object.properties.object_id))
 					table.insert(lines, "Mail: " .. safe_str(ad_object.properties.mail))
 					table.insert(lines, "Security Enabled: " .. safe_str(ad_object.properties.security_enabled))
 					table.insert(lines, "Mail Enabled: " .. safe_str(ad_object.properties.mail_enabled))
 					table.insert(lines, "Description: " .. safe_str(ad_object.properties.description))
-
 				elseif ad_object.type == "Microsoft.AzureAD/roleAssignments" then
 					table.insert(lines, "Role: " .. safe_str(ad_object.properties.role_definition_name))
 					table.insert(lines, "Principal: " .. safe_str(ad_object.properties.principal_name))
@@ -534,6 +542,145 @@ Actions:
   <Enter> - Show detailed information
   <C-y>   - Copy object ID
   <C-n>   - Copy object name
+]]
+
+			for line in txt:gmatch("[^\r\n]+") do
+				table.insert(lines, line)
+			end
+
+			-- Remove trailing newlines
+			for i, line in ipairs(lines) do
+				if line:sub(-1) == "\n" then
+					lines[i] = line:sub(1, -2)
+				end
+			end
+
+			vim.api.nvim_buf_set_lines(self.state.bufnr, 0, -1, false, lines)
+		end,
+	})
+end
+
+-- Search role assignments for a resource
+function M.search_role_assignments(role_assignments, resource)
+	if not role_assignments or #role_assignments == 0 then
+		vim.schedule(function()
+			vim.notify("No role assignments found for resource: " .. resource.name, vim.log.levels.INFO)
+		end)
+		return
+	end
+
+	local opts = {}
+
+	pickers
+		.new(opts, {
+			prompt_title = "Role Assignments - " .. resource.name,
+			finder = finders.new_table({
+				results = role_assignments,
+				entry_maker = function(role_assignment)
+					local icon = config.get_icon(role_assignment.type)
+					local display_name = string.format(
+						"%s%s (%s) [%s]",
+						icon,
+						role_assignment.properties.role_definition_name,
+						role_assignment.properties.principal_name or "Unknown",
+						role_assignment.properties.principal_type or "Unknown"
+					)
+
+					return {
+						value = role_assignment,
+						display = display_name,
+						ordinal = role_assignment.properties.role_definition_name
+							.. " "
+							.. (role_assignment.properties.principal_name or "")
+							.. " "
+							.. role_assignment.properties.principal_type
+							.. " "
+							.. role_assignment.properties.scope,
+					}
+				end,
+			}),
+			sorter = conf.generic_sorter(opts),
+			previewer = M.create_role_assignment_previewer(resource),
+			attach_mappings = function(prompt_bufnr, map)
+				actions.select_default:replace(function()
+					actions.close(prompt_bufnr)
+					local selection = action_state.get_selected_entry()
+					if selection then
+						require("nimure").show_role_assignment_details(selection.value)
+					end
+				end)
+
+				-- Copy role assignment ID
+				map("i", "<C-y>", function()
+					local selection = action_state.get_selected_entry()
+					if selection then
+						require("nimure").copy_resource_id(selection.value)
+					end
+				end)
+
+				-- Copy principal name
+				map("i", "<C-n>", function()
+					local selection = action_state.get_selected_entry()
+					if selection then
+						require("nimure").copy_principal_name(selection.value)
+					end
+				end)
+
+				return true
+			end,
+		})
+		:find()
+end
+
+-- Create role assignment previewer
+function M.create_role_assignment_previewer(resource)
+	return previewers.new_buffer_previewer({
+		title = "Role Assignment Details",
+		define_preview = function(self, entry, status)
+			local role_assignment = entry.value
+			local lines = {}
+
+			-- Role assignment info
+			table.insert(lines, "Role: " .. (role_assignment.properties.role_definition_name or "Unknown"))
+			table.insert(lines, "Principal: " .. (role_assignment.properties.principal_name or "Unknown"))
+			table.insert(lines, "Principal Type: " .. (role_assignment.properties.principal_type or "Unknown"))
+			table.insert(lines, "Principal ID: " .. (role_assignment.properties.principal_id or "Unknown"))
+			table.insert(lines, "")
+
+			-- Resource info
+			table.insert(lines, "Resource Name: " .. resource.name)
+			table.insert(lines, "Resource Type: " .. resource.type)
+			table.insert(lines, "Resource Group: " .. resource.resource_group)
+			table.insert(lines, "")
+
+			-- Scope info
+			table.insert(lines, "Scope:")
+			table.insert(lines, role_assignment.properties.scope or "Unknown")
+			table.insert(lines, "")
+
+			-- Assignment ID
+			table.insert(lines, "Assignment ID:")
+			table.insert(lines, role_assignment.id or "Unknown")
+			table.insert(lines, "")
+
+			-- Dates
+			if role_assignment.properties.created_on then
+				table.insert(lines, "Created On: " .. role_assignment.properties.created_on)
+			end
+			if role_assignment.properties.updated_on then
+				table.insert(lines, "Updated On: " .. role_assignment.properties.updated_on)
+			end
+
+			if role_assignment.properties.description then
+				table.insert(lines, "Description: " .. role_assignment.properties.description)
+			end
+
+			table.insert(lines, "")
+			local txt = [[
+ Actions:
+   <Enter> - Show detailed information
+   <C-y>   - Copy assignment ID
+   <C-n>   - Copy principal name
 ]]
 
 			for line in txt:gmatch("[^\r\n]+") do

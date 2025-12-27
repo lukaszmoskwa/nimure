@@ -482,6 +482,39 @@ function M.show_resource_costs(resource, options)
 	end)
 end
 
+-- Show resource roles
+function M.show_resource_roles(resource)
+	if not resource then
+		vim.notify("No resource selected", vim.log.levels.WARN)
+		return
+	end
+	
+	azure.get_resource_role_assignments(resource, function(role_assignments, error)
+		vim.schedule(function()
+			if error then
+				vim.notify("Failed to get role assignments: " .. error, vim.log.levels.ERROR)
+				return
+			end
+
+			ui.show_role_assignments_table(role_assignments, resource)
+		end)
+	end)
+end
+
+-- Show role assignment details
+function M.show_role_assignment_details(role_assignment)
+	ui.show_role_assignment_details(role_assignment)
+end
+
+-- Copy principal name to clipboard
+function M.copy_principal_name(role_assignment)
+	local principal_name = role_assignment.properties.principal_name or "Unknown"
+	vim.fn.setreg("+", principal_name)
+	vim.schedule(function()
+		vim.notify("Copied principal name: " .. principal_name, vim.log.levels.INFO)
+	end)
+end
+
 -- Switch Azure subscription
 function M.switch_subscription()
 	telescope_extension.switch_subscription()
@@ -493,3 +526,4 @@ function M.get_state()
 end
 
 return M
+

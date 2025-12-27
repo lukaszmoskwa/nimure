@@ -1010,4 +1010,201 @@ function M.close_sidebar()
 	end)
 end
 
+-- Show role assignments in a table
+function M.show_role_assignments_table(role_assignments, resource)
+	if not role_assignments or #role_assignments == 0 then
+		vim.notify("No role assignments found for resource: " .. resource.name, vim.log.levels.INFO)
+		return
+	end
+
+	-- Calculate table dimensions
+	local max_role_name = 20
+	local max_principal_name = 25
+	local max_principal_type = 15
+	
+	-- Find max widths
+	for _, assignment in ipairs(role_assignments) do
+		local role_name = assignment.properties.role_definition_name or "Unknown"
+		local principal_name = assignment.properties.principal_name or "Unknown"
+		local principal_type = assignment.properties.principal_type or "Unknown"
+		
+		max_role_name = math.max(max_role_name, #role_name)
+		max_principal_name = math.max(max_principal_name, #principal_name)
+		max_principal_type = math.max(max_principal_type, #principal_type)
+	end
+	
+	local total_width = max_role_name + max_principal_name + max_principal_type + 13 -- separators and padding
+	local height = #role_assignments + 6 -- header, separator, footer
+	
+	-- Create popup window
+	local popup = NuiPopup({
+		enter = true,
+		focusable = true,
+		border = {
+			style = "rounded",
+			text = {
+				top = " Role Assignments - " .. resource.name .. " ",
+			},
+		},
+		relative = "editor",
+		position = "50%",
+		size = {
+			width = math.min(total_width, 120),
+			height = math.min(height, vim.o.lines - 10),
+		},
+		buf_options = {
+			modifiable = true,
+			readonly = false,
+			filetype = "nimure",
+		},
+		win_options = {
+			wrap = false,
+			cursorline = true,
+			number = false,
+			relativenumber = false,
+		},
+	})
+
+	-- Create content lines
+	local lines = {}
+	
+	-- Header
+	table.insert(lines, string.format("%-" .. max_role_name .. "s  %-" .. max_principal_name .. "s  %-" .. max_principal_type .. "s", "Role", "Principal", "Type"))
+	table.insert(lines, string.rep("-", max_role_name) .. "  " .. string.rep("-", max_principal_name) .. "  " .. string.rep("-", max_principal_type))
+	
+	-- Data rows
+	for _, assignment in ipairs(role_assignments) do
+		local role_name = assignment.properties.role_definition_name or "Unknown"
+		local principal_name = assignment.properties.principal_name or "Unknown"
+		local principal_type = assignment.properties.principal_type or "Unknown"
+		
+		table.insert(lines, string.format("%-" .. max_role_name .. "s  %-" .. max_principal_name .. "s  %-" .. max_principal_type .. "s", 
+			role_name, principal_name, principal_type))
+	end
+	
+	-- Footer
+	table.insert(lines, "")
+	table.insert(lines, "Press <Enter> for details, q to quit")
+
+	-- Set buffer content
+	vim.api.nvim_buf_set_lines(popup.bufnr, 0, -1, false, lines)
+	
+	-- Make buffer readonly after setting content
+	vim.api.nvim_buf_set_option(popup.bufnr, 'modifiable', false)
+	vim.api.nvim_buf_set_option(popup.bufnr, 'readonly', true)
+
+	-- Setup keymaps
+	popup:map("n", "q", function()
+		popup:unmount()
+	end, { noremap = true })
+
+	popup:map("n", "<Esc>", function()
+		popup:unmount()
+	end, { noremap = true })
+
+	popup:map("n", "<C-c>", function()
+		popup:unmount()
+	end, { noremap = true })
+	
+	-- Enter to show details
+	popup:map("n", "<CR>", function()
+		local current_line = vim.api.nvim_win_get_cursor(0)[1]
+		-- Adjust for header (lines 1-2 are header/separator)
+		local assignment_index = current_line - 2
+		
+		if assignment_index >= 1 and assignment_index <= #role_assignments then
+			local assignment = role_assignments[assignment_index]
+			require("nimure").show_role_assignment_details(assignment)
+		end
+	end, { noremap = true })
+
+	-- Mount the popup
+	popup:mount()
+	
+	-- Set syntax highlighting for header
+	vim.api.nvim_set_hl(0, "NimureTableHeader", { fg = "#61afef", bold = true })
+	vim.api.nvim_buf_add_highlight(popup.bufnr, -1, "NimureTableHeader", 0, 0, -1)
+	vim.api.nvim_buf_add_highlight(popup.bufnr, -1, "NimureTableHeader", 1, 0, -1)
+end
+
+-- Show role assignment details
+function M.show_role_assignment_details(role_assignment)
+	local popup = NuiPopup({
+		enter = true,
+		focusable = true,
+		border = {
+			style = "rounded",
+			text = {
+				top = " Role Assignment Details ",
+			},
+		},
+		relative = "editor",
+		position = "50%",
+		size = {
+			width = 80,
+			height = 20,
+		},
+		buf_options = {
+			modifiable = false,
+			readonly = true,
+			filetype = "nimure",
+		},
+		win_options = {
+			wrap = true,
+			cursorline = true,
+			number = false,
+			relativenumber = false,
+		},
+	})
+
+	-- Create content lines
+	local lines = {}
+	
+	-- Role assignment info
+	table.insert(lines, "")
+	table.insert(lines, "Role: " .. utils.highlight_text(role_assignment.properties.role_definition_name or "Unknown", "Title"))
+	table.insert(lines, "")
+	table.insert(lines, "Principal: " .. (role_assignment.properties.principal_name or "Unknown"))
+	table.insert(lines, "Principal Type: " .. (role_assignment.properties.principal_type or "Unknown"))
+	table.insert(lines, "Principal ID: " .. (role_assignment.properties.principal_id or "Unknown"))
+	table.insert(lines, "")
+	
+	-- Resource info
+	table.insert(lines, "Resource Name: " .. role_assignment.resource_name)
+	table.insert(lines, "Resource Type: " .. role_assignment.resource_type)
+	table.insert(lines, "Resource Group: " .. role_assignment.resource_group)
+	table.insert(lines, "")
+	
+	-- Scope info
+	table.insert(lines, "Scope:")
+	table.insert(lines, role_assignment.properties.scope or "Unknown")
+	table.insert(lines, "")
+	
+	-- Assignment ID
+	table.insert(lines, "Assignment ID:")
+	table.insert(lines, role_assignment.id or "Unknown")
+
+	-- Set buffer content
+	vim.api.nvim_buf_set_lines(popup.bufnr, 0, -1, false, lines)
+
+	-- Setup keymaps
+	popup:map("n", "q", function()
+		popup:unmount()
+	end, { noremap = true })
+
+	popup:map("n", "<Esc>", function()
+		popup:unmount()
+	end, { noremap = true })
+
+	popup:map("n", "<C-c>", function()
+		popup:unmount()
+	end, { noremap = true })
+
+	-- Mount the popup
+	popup:mount()
+
+	-- Set syntax highlighting
+	vim.api.nvim_set_hl(0, "NimureTitle", { fg = "#61afef", bold = true })
+end
+
 return M
