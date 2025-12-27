@@ -90,6 +90,13 @@ end, {
 	desc = "Clear Azure data cache to force fresh data",
 })
 
+-- Subscription management
+vim.api.nvim_create_user_command("NimureSwitchSubscription", function()
+	require("nimure").switch_subscription()
+end, {
+	desc = "Switch Azure subscription",
+})
+
 -- Set up health check
 vim.api.nvim_create_user_command("NimureHealth", function()
 	require("nimure.health").check()

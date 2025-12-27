@@ -42,6 +42,12 @@ function M.setup(opts)
 		end, { desc = "Toggle floating sidebar on right" })
 	end
 
+	if config.options.keymaps.switch_subscription then
+		vim.keymap.set("n", config.options.keymaps.switch_subscription, function()
+			M.switch_subscription()
+		end, { desc = "Switch Azure subscription" })
+	end
+
 	M.state.setup_done = true
 end
 
@@ -278,6 +284,11 @@ function M.show_resource_costs(resource, options)
 			ui.show_resource_cost_details(resource_costs)
 		end)
 	end)
+end
+
+-- Switch Azure subscription
+function M.switch_subscription()
+	telescope_extension.switch_subscription()
 end
 
 -- Get current state (for debugging)

@@ -1120,4 +1120,147 @@ function M._fetch_vnet_subnets(vnet, callback)
 	}):start()
 end
 
+-- Get all available subscriptions
+function M.list_subscriptions(callback)
+	local stdout = {}
+	local stderr = {}
+	
+	Job:new({
+		command = "az",
+		args = { "account", "list", "--output", "json" },
+		timeout = config.get().azure.timeout,
+		on_stdout = function(_, line)
+			table.insert(stdout, line)
+		end,
+		on_stderr = function(_, line)
+			table.insert(stderr, line)
+		end,
+		on_exit = function(_, return_val)
+			if return_val ~= 0 then
+				local error_msg = table.concat(stderr, "\n")
+				if error_msg:match("Please run 'az login'") then
+					error_msg = "Not logged in to Azure. Please run 'az login'"
+				end
+				callback(nil, "Failed to list subscriptions: " .. error_msg)
+				return
+			end
+			
+			local json_str = table.concat(stdout, "\n")
+			if json_str == "" or json_str == "[]" then
+				callback({}, nil)
+				return
+			end
+			
+			local ok, subscriptions = pcall(vim.json.decode, json_str)
+			if not ok then
+				callback(nil, "Failed to parse subscriptions JSON")
+				return
+			end
+			
+			-- Process subscription data
+			local processed_subscriptions = {}
+			for _, subscription in ipairs(subscriptions) do
+				table.insert(processed_subscriptions, {
+					id = subscription.id,
+					name = subscription.name,
+					tenant_id = subscription.tenantId,
+					is_default = subscription.isDefault or false,
+					state = subscription.state or "Unknown",
+					cloud_name = subscription.cloudName or "AzureCloud",
+				})
+			end
+			
+			-- Sort by default status first, then by name
+			table.sort(processed_subscriptions, function(a, b)
+				if a.is_default and not b.is_default then
+					return true
+				elseif not a.is_default and b.is_default then
+					return false
+				else
+					return a.name < b.name
+				end
+			end)
+			
+			callback(processed_subscriptions, nil)
+		end,
+	}):start()
+end
+
+-- Set active subscription
+function M.set_subscription(subscription_id, callback)
+	local stdout = {}
+	local stderr = {}
+	
+	Job:new({
+		command = "az",
+		args = { "account", "set", "--subscription", subscription_id },
+		timeout = config.get().azure.timeout,
+		on_stdout = function(_, line)
+			table.insert(stdout, line)
+		end,
+		on_stderr = function(_, line)
+			table.insert(stderr, line)
+		end,
+		on_exit = function(_, return_val)
+			if return_val ~= 0 then
+				callback(nil, "Failed to set subscription: " .. table.concat(stderr, "\n"))
+				return
+			end
+			
+			-- Clear cache to force refresh
+			M.cache.subscription_info = nil
+			M.cache.subscription_info_timestamp = 0
+			
+			-- Update config to use new subscription
+			local config_opts = config.get()
+			config_opts.azure.subscription_id = subscription_id
+			
+			callback(true, nil)
+		end,
+	}):start()
+end
+
+-- Get current active subscription (without cache)
+function M.get_current_subscription(callback)
+	local stdout = {}
+	local stderr = {}
+	
+	Job:new({
+		command = "az",
+		args = { "account", "show", "--output", "json" },
+		timeout = config.get().azure.timeout,
+		on_stdout = function(_, line)
+			table.insert(stdout, line)
+		end,
+		on_stderr = function(_, line)
+			table.insert(stderr, line)
+		end,
+		on_exit = function(_, return_val)
+			if return_val ~= 0 then
+				callback(nil, "Failed to get current subscription: " .. table.concat(stderr, "\n"))
+				return
+			end
+			
+			local json_str = table.concat(stdout, "\n")
+			if json_str == "" then
+				callback(nil, "No active subscription found")
+				return
+			end
+			
+			local ok, subscription = pcall(vim.json.decode, json_str)
+			if not ok then
+				callback(nil, "Failed to parse current subscription JSON")
+				return
+			end
+			
+			callback({
+				id = subscription.id,
+				name = subscription.name,
+				tenant_id = subscription.tenantId,
+				environment_name = subscription.environmentName,
+			}, nil)
+		end,
+	}):start()
+end
+
 return M

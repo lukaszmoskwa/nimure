@@ -269,4 +269,93 @@ function M.get_locations(resources)
 	return locations
 end
 
+-- Subscription switcher
+function M.switch_subscription()
+	local azure = require("nimure.azure")
+
+	azure.list_subscriptions(function(subscriptions, error)
+		if error then
+			vim.schedule(function()
+				vim.notify("Failed to list subscriptions: " .. error, vim.log.levels.ERROR)
+			end)
+			return
+		end
+
+		if #subscriptions == 0 then
+			vim.schedule(function()
+				vim.notify("No subscriptions found", vim.log.levels.WARN)
+			end)
+			return
+		end
+
+		-- Create picker in vim.schedule to avoid fast context issues
+		vim.schedule(function()
+			local opts = {}
+
+			pickers
+				.new(opts, {
+					prompt_title = "Azure Subscriptions",
+					finder = finders.new_table({
+						results = subscriptions,
+						entry_maker = function(subscription)
+							local default_indicator = subscription.is_default and " (current)" or ""
+							local display_name = string.format(
+								"%s%s [%s]%s",
+								subscription.name,
+								default_indicator,
+								subscription.cloud_name or "AzureCloud",
+								subscription.state ~= "Enabled" and " (" .. subscription.state .. ")" or ""
+							)
+
+							return {
+								value = subscription,
+								display = display_name,
+								ordinal = subscription.name .. " " .. subscription.id,
+							}
+						end,
+					}),
+					sorter = conf.generic_sorter(opts),
+					attach_mappings = function(prompt_bufnr, map)
+						actions.select_default:replace(function()
+							actions.close(prompt_bufnr)
+							local selection = action_state.get_selected_entry()
+							if selection then
+								azure.set_subscription(selection.value.id, function(success, error)
+									if error then
+										vim.schedule(function()
+											vim.notify("Failed to switch subscription: " .. error, vim.log.levels.ERROR)
+										end)
+									else
+										vim.schedule(function()
+											vim.notify(
+												"Switched to subscription: " .. selection.value.name,
+												vim.log.levels.INFO
+											)
+											-- Refresh resources to show resources from new subscription
+											require("nimure").refresh_resources()
+										end)
+									end
+								end)
+							end
+						end)
+
+						-- Copy subscription ID
+						map("i", "<C-y>", function()
+							local selection = action_state.get_selected_entry()
+							if selection then
+								vim.fn.setreg("+", selection.value.id)
+								vim.schedule(function()
+									vim.notify("Copied subscription ID: " .. selection.value.id, vim.log.levels.INFO)
+								end)
+							end
+						end)
+
+						return true
+					end,
+				})
+			:find()
+		end)
+		end)
+end
+
 return M

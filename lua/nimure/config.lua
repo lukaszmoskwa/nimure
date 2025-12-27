@@ -49,6 +49,7 @@ M.defaults = {
 		close = "q",
 		costs = "c", -- View costs
 		cost_breakdown = "C", -- View detailed cost breakdown
+		switch_subscription = "s", -- Switch Azure subscription
 	},
 
 	-- Debug mode
