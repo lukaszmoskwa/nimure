@@ -78,6 +78,7 @@ function M.get_type_category(resource_type)
 		},
 		networking = {
 			"Microsoft.Network/virtualNetworks",
+			"Microsoft.Network/virtualNetworks/subnets",
 			"Microsoft.Network/publicIPAddresses",
 			"Microsoft.Network/networkSecurityGroups",
 			"Microsoft.Network/loadBalancers",

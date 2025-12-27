@@ -93,6 +93,7 @@ M.icons = {
 
 	-- Networking
 	["Microsoft.Network/virtualNetworks"] = "🌐",
+	["Microsoft.Network/virtualNetworks/subnets"] = "🔗",
 	["Microsoft.Network/publicIPAddresses"] = "🌍",
 	["Microsoft.Network/networkSecurityGroups"] = "🛡️ ",
 	["Microsoft.Network/loadBalancers"] = "⚖️ ",

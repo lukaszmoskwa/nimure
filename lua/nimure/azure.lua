@@ -260,7 +260,21 @@ function M.get_resources(callback)
 
 			-- Process and sort resources
 			local processed_resources = M.process_resources(resources)
-			callback(processed_resources, nil)
+			
+			-- Fetch sub-resources that don't appear in the main resource list
+			M.fetch_sub_resources(processed_resources, function(sub_resources, error)
+				if error then
+					-- Log error but continue with main resources
+					vim.schedule(function()
+						vim.notify("Warning: Could not fetch sub-resources: " .. error, vim.log.levels.WARN)
+					end)
+					callback(processed_resources, nil)
+				else
+					-- Merge main resources with sub-resources
+					local all_resources = vim.list_extend(processed_resources, sub_resources)
+					callback(all_resources, nil)
+				end
+			end)
 		end,
 	}):start()
 end
@@ -985,6 +999,125 @@ function M._make_resource_group_cost_query(subscription_id, resource, start_date
 			end,
 		}):start()
 	end)
+end
+
+-- Fetch sub-resources that don't appear in the main resource list
+function M.fetch_sub_resources(resources, callback)
+	local sub_resources = {}
+	local vnets = {}
+	
+	-- Collect all virtual networks from the main resources
+	for _, resource in ipairs(resources) do
+		if resource.type == "Microsoft.Network/virtualNetworks" then
+			table.insert(vnets, resource)
+		end
+	end
+	
+	if #vnets == 0 then
+		callback({}, nil)
+		return
+	end
+	
+	local completed_requests = 0
+	local total_requests = #vnets
+	local errors = {}
+	
+	-- Function to handle completion
+	local function handle_completion()
+		completed_requests = completed_requests + 1
+		if completed_requests == total_requests then
+			if #errors > 0 then
+				callback(sub_resources, table.concat(errors, "; "))
+			else
+				callback(sub_resources, nil)
+			end
+		end
+	end
+	
+	-- Fetch subnets for each virtual network
+	for _, vnet in ipairs(vnets) do
+		M._fetch_vnet_subnets(vnet, function(subnets, error)
+			if error then
+				table.insert(errors, "Failed to fetch subnets for " .. vnet.name .. ": " .. error)
+			else
+				for _, subnet in ipairs(subnets) do
+					table.insert(sub_resources, subnet)
+				end
+			end
+			handle_completion()
+		end)
+	end
+end
+
+-- Fetch subnets for a specific virtual network
+function M._fetch_vnet_subnets(vnet, callback)
+	local stdout = {}
+	local stderr = {}
+	
+	Job:new({
+		command = "az",
+		args = {
+			"network",
+			"vnet",
+			"subnet",
+			"list",
+			"--resource-group",
+			vnet.resource_group,
+			"--vnet-name",
+			vnet.name,
+			"--output",
+			"json"
+		},
+		timeout = config.get().azure.timeout,
+		on_stdout = function(_, line)
+			table.insert(stdout, line)
+		end,
+		on_stderr = function(_, line)
+			table.insert(stderr, line)
+		end,
+		on_exit = function(_, return_val)
+			if return_val ~= 0 then
+				callback(nil, "Azure CLI error: " .. table.concat(stderr, "\n"))
+				return
+			end
+			
+			local json_str = table.concat(stdout, "\n")
+			if json_str == "" or json_str == "[]" then
+				callback({}, nil)
+				return
+			end
+			
+			local ok, subnets = pcall(vim.json.decode, json_str)
+			if not ok then
+				callback(nil, "Failed to parse subnets JSON")
+				return
+			end
+			
+			-- Process subnet data
+			local processed_subnets = {}
+			for _, subnet in ipairs(subnets) do
+				table.insert(processed_subnets, {
+					id = subnet.id,
+					name = subnet.name,
+					type = subnet.type,
+					location = vnet.location, -- Subnet inherits location from VNet
+					resource_group = vnet.resource_group,
+					tags = subnet.tags or {},
+					kind = subnet.kind,
+					properties = subnet.properties or {},
+					address_prefix = subnet.properties and subnet.properties.addressPrefix and subnet.properties.addressPrefix[1] or "Unknown",
+					vnet_name = vnet.name,
+				})
+			end
+			
+			-- Sort subnets by name
+			table.sort(processed_subnets, function(a, b)
+				return a.name < b.name
+			end)
+			
+			callback(processed_subnets, nil)
+		end,
+	}):start()
 end
 
 return M
