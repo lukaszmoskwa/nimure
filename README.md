@@ -18,6 +18,7 @@ Nimure is a Neovim plugin that provides a beautiful sidebar interface to explore
 - 📱 **App Registrations**: View Azure AD application registrations with properties and permissions
 - 👥 **Users & Groups**: Browse Azure AD users and groups with membership information
 - 🔑 **Role Management**: View Azure RBAC role assignments across your subscription
+- 🏗️ **Terraform Import**: Generate HCL import blocks for Azure resources with automatic backend configuration
 - 📋 **Copy IDs**: Quick copy resource IDs and names to clipboard
 - 🔄 **Manual Refresh**: Refresh resource list on demand
 - ⚡ **Async**: Non-blocking operations using plenary.nvim
@@ -26,6 +27,7 @@ Nimure is a Neovim plugin that provides a beautiful sidebar interface to explore
 
 - Neovim >= 0.8.0
 - Azure CLI (`az`) installed and configured
+- Terraform CLI (optional, for import generation)
 - Required Neovim plugins:
   - [nui.nvim](https://github.com/MunifTanjim/nui.nvim)
   - [telescope.nvim](https://github.com/nvim-telescope/telescope.nvim)
@@ -80,13 +82,13 @@ require("nimure").setup({
     position = "left", -- "left" or "right"
     auto_close = false,
   },
-  
+
   -- Azure configuration
   azure = {
     subscription_id = nil, -- nil to use default subscription
     resource_groups = {}, -- empty to show all resource groups
   },
-  
+
   -- UI configuration
   ui = {
     show_icons = true,
@@ -94,7 +96,7 @@ require("nimure").setup({
     show_location = true,
     show_type = true,
   },
-  
+
   -- Keybindings
   keymaps = {
     toggle_sidebar = "<leader>az",
@@ -112,8 +114,9 @@ require("nimure").setup({
     show_group_members = "g", -- Show group members
     show_role_details = "r", -- Show role assignment details
     ad_search = "S", -- Search Azure AD objects
+    terraform_import = "t", -- Generate Terraform import block
   },
-  
+
   -- Cost tracking configuration
   costs = {
     enabled = true,
@@ -123,7 +126,22 @@ require("nimure").setup({
     chart_height = 10, -- Height of ASCII charts
     -- Currency symbols are now auto-detected from Azure billing data
   },
-  
+
+  -- Terraform import configuration
+  terraform = {
+    enabled = true,
+    backend = {
+      resource_group_name = "terraform-state",
+      storage_account_name = "tfstate12345", -- Set to enable backend.tf generation
+      container_name = "tfstate",
+      key = "terraform.tfstate",
+      use_azuread_cli = true,
+    },
+    output_dir = "/tmp/nimure-terraform",
+    auto_open = true, -- Automatically open generated file
+    resource_name_placeholder = "example", -- Placeholder for resource names
+  },
+
   -- Azure AD configuration
   azure_ad = {
     enabled = true,
@@ -137,13 +155,13 @@ require("nimure").setup({
     group_filters = {},
     app_filters = {},
   },
-  
+
   -- Cache and rate limiting configuration
   cache = {
     ttl_seconds = 300, -- 5 minutes cache TTL
     auto_cleanup = true, -- Automatically clean up old cache entries
   },
-  
+
   rate_limiting = {
     enabled = true, -- Enable rate limiting to prevent API throttling
     min_interval_ms = 1000, -- Minimum 1 second between requests
@@ -177,6 +195,49 @@ require("nimure").setup({
 - `:NimureADGroups` - Search Azure AD groups
 - `:NimureADRoles` - Search Azure AD role assignments
 
+### Terraform Import
+
+Nimure can generate Terraform HCL import blocks for Azure resources, making it easy to import existing infrastructure into Terraform.
+
+#### How to Use
+
+1. Open the Nimure sidebar (`:NimureToggle` or `<leader>az`)
+2. Navigate to the resource you want to import
+3. Press `t` to generate the Terraform import block
+4. The generated file opens automatically in Neovim
+5. Follow the instructions in the notification to complete the import
+
+#### Generated Files
+
+Files are generated in `/tmp/nimure-terraform/` (configurable):
+
+- `import_<resource_type>_<timestamp>.tf` - Import block and resource placeholder
+- `backend.tf` - Azure backend configuration (if `storage_account_name` is configured)
+
+#### Next Steps After Generation
+
+```bash
+cd /tmp/nimure-terraform
+terraform init
+terraform plan -generate-config-out=generated.tf
+# Review generated.tf and adjust as needed
+terraform apply
+```
+
+#### Supported Resource Types
+
+Nimure supports 100+ Azure resource types including:
+
+- Compute (VMs, Scale Sets, Disks)
+- Storage (Storage Accounts, Containers)
+- Networking (VNets, Subnets, NSGs, Load Balancers)
+- Databases (PostgreSQL, MySQL, SQL Server, CosmosDB)
+- Containers (AKS, Container Registry)
+- Web (App Service, Functions)
+- And many more...
+
+Run `:checkhealth nimure` to see the full count of supported types.
+
 ### Cache Management Commands
 
 - `:NimureClearCache` - Clear cached Azure and Azure AD data to force fresh API calls
@@ -184,6 +245,7 @@ require("nimure").setup({
 ### Default Keybindings
 
 In the sidebar:
+
 - `<CR>` - View resource/AD object details
 - `m` - View resource metrics
 - `y` - Copy resource/AD object ID to clipboard
@@ -194,9 +256,11 @@ In the sidebar:
 - `c` - View subscription cost overview
 - `C` - View detailed cost breakdown
 - `R` - View costs for selected resource
+- `t` - Generate Terraform import block for selected resource
 - `q` - Close sidebar
 
 Global:
+
 - `<leader>az` - Toggle sidebar
 
 ## 🔧 Troubleshooting
@@ -206,10 +270,11 @@ Global:
 If you encounter "Too Many Requests" errors, the plugin has built-in optimizations to prevent this:
 
 - **Automatic Caching**: API responses are cached for 5 minutes to reduce redundant calls
-- **Rate Limiting**: Minimum 1-second intervals between API calls with max 20 requests/minute  
+- **Rate Limiting**: Minimum 1-second intervals between API calls with max 20 requests/minute
 - **Smart Currency Detection**: Billing currency is cached and reused across requests
 
 **Solutions:**
+
 1. **Automatic Handling**: The plugin will automatically handle rate limiting with non-blocking delays
 2. **Clear Cache**: Use `:NimureClearCache` if you need fresh data immediately
 3. **Adjust Settings**: Increase rate limiting intervals in your configuration:
@@ -237,8 +302,9 @@ Nimure now includes comprehensive Azure Active Directory integration, allowing y
 ### Azure AD Permissions
 
 To access Azure AD data, you need appropriate permissions:
+
 - **Application.Read.All** or **Directory.Read.All** for app registrations
-- **User.Read.All** for user listings  
+- **User.Read.All** for user listings
 - **Group.Read.All** for group listings
 - **RoleAssignment.ReadWrite.Directory** for role assignments
 
@@ -253,7 +319,7 @@ require("nimure").setup({
   azure_ad = {
     enabled = true, -- Enable/disable Azure AD features
     include_app_registrations = true,
-    include_users = true, 
+    include_users = true,
     include_groups = true,
     include_role_assignments = true,
     include_service_principals = false, -- Resource intensive, disabled by default
@@ -268,7 +334,7 @@ require("nimure").setup({
 ### Performance Tips
 
 - **Use Caching**: Data is cached for 5 minutes by default to improve performance
-- **Avoid Rapid Requests**: Don't call multiple cost commands simultaneously  
+- **Avoid Rapid Requests**: Don't call multiple cost commands simultaneously
 - **Custom Date Ranges**: Use smaller date ranges for faster responses
 - **Resource Costs**: Resource-specific costs use resource group aggregation for better performance
 - **Large AD Environments**: Consider using filters if you have thousands of AD objects
@@ -287,13 +353,14 @@ require("nimure").setup({
 ### Prerequisites
 
 1. **Azure CLI**: Install and authenticate
+
    ```bash
    # Install Azure CLI
    curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash
-   
+
    # Login to Azure
    az login
-   
+
    # Verify authentication
    az account show
    ```
@@ -303,18 +370,21 @@ require("nimure").setup({
 ### Local Development
 
 1. **Clone the repository**:
+
    ```bash
    git clone https://github.com/lukaszmoskwa/nimure.git
    cd nimure
    ```
 
 2. **Set up development environment**:
+
    ```bash
    # Create a test Neovim configuration
    mkdir -p ~/.config/nvim-nimure
    ```
 
 3. **Create development init.lua**:
+
    ```lua
    -- ~/.config/nvim-nimure/init.lua
    local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
@@ -326,7 +396,7 @@ require("nimure").setup({
      })
    end
    vim.opt.rtp:prepend(lazypath)
-   
+
    require("lazy").setup({
      {
        dir = "/path/to/your/nimure", -- Adjust path
@@ -353,12 +423,14 @@ require("nimure").setup({
 ### Testing
 
 1. **Test Azure CLI integration**:
+
    ```bash
    # Verify Azure CLI works
    az resource list --output table
    ```
 
 2. **Test plugin loading**:
+
    ```vim
    :checkhealth nimure
    ```
@@ -372,6 +444,7 @@ require("nimure").setup({
 ### Debugging
 
 Enable debug logging:
+
 ```lua
 require("nimure").setup({
   debug = true,
@@ -379,6 +452,7 @@ require("nimure").setup({
 ```
 
 View logs:
+
 ```vim
 :messages
 ```
@@ -408,4 +482,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ![Nimure Sidebar](screenshots/sidebar.png)
 ![Telescope Integration](screenshots/telescope.png)
-![Resource Details](screenshots/details.png) 
+![Resource Details](screenshots/details.png)
+

@@ -185,6 +185,16 @@ function M.setup_sidebar_keymaps()
 		require("nimure").show_cost_breakdown()
 	end, { buffer = bufnr, desc = "Show detailed cost breakdown" })
 
+	-- Generate Terraform import block
+	vim.keymap.set("n", options.keymaps.terraform_import, function()
+		if M.tree then
+			local ok, node = pcall(M.tree.get_node, M.tree)
+			if ok and node and node.resource then
+				require("nimure.terraform").generate_import_block(node.resource)
+			end
+		end
+	end, { buffer = bufnr, desc = "Generate Terraform import block" })
+
 	-- Tree navigation
 	vim.keymap.set("n", "<Space>", function()
 		if M.tree then

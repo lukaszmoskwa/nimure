@@ -107,6 +107,15 @@ function M.search_resources(resources)
 					end
 				end)
 
+				-- Generate Terraform import
+				map("i", "<C-t>", function()
+					actions.close(prompt_bufnr)
+					local selection = action_state.get_selected_entry()
+					if selection then
+						require("nimure.terraform").generate_import_block(selection.value)
+					end
+				end)
+
 				return true
 			end,
 		})
@@ -156,12 +165,13 @@ function M.create_resource_previewer()
 				end
 			end
 			local txt = [[
- Actions:
-   <Enter> - Show detailed information
-   <C-y>   - Copy resource ID
-   <C-n>   - Copy resource name
-   <C-m>   - Show metrics
-   <C-b>   - Show role assignments
+Actions:
+  <Enter> - Show detailed information
+  <C-y>   - Copy resource ID
+  <C-n>   - Copy resource name
+  <C-m>   - Show metrics
+  <C-b>   - Show role assignments
+  <C-t>   - Generate Terraform import
 ]]
 
 			for line in txt:gmatch("[^\r\n]+") do

@@ -56,6 +56,7 @@ M.defaults = {
 		show_group_members = "g", -- Show group members
 		show_role_details = "r", -- Show role assignment details
 		ad_search = "S", -- Search Azure AD objects
+		terraform_import = "t", -- Generate Terraform import block
 	},
 
 	-- Debug mode
@@ -95,6 +96,20 @@ M.defaults = {
 		user_filters = {}, -- Filter by UPN domain, etc.
 		group_filters = {},
 		app_filters = {},
+	},
+	-- Terraform integration configuration
+	terraform = {
+		enabled = true,
+		backend = {
+			resource_group_name = "terraform-state",
+			storage_account_name = nil, -- User must configure for backend.tf generation
+			container_name = "tfstate",
+			key = "terraform.tfstate",
+			use_azuread_cli = true,
+		},
+		output_dir = "/tmp/nimure-terraform",
+		auto_open = true, -- Automatically open generated file in Neovim
+		resource_name_placeholder = "example", -- Placeholder name for imported resources
 	},
 }
 

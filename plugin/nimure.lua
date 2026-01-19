@@ -112,7 +112,7 @@ vim.api.nvim_create_user_command("NimureADApps", function()
 			end)
 			return
 		end
-		
+
 		local ad_objects = { app_registrations = apps }
 		require("nimure").search_ad_objects(ad_objects)
 	end)
@@ -128,7 +128,7 @@ vim.api.nvim_create_user_command("NimureADUsers", function()
 			end)
 			return
 		end
-		
+
 		local ad_objects = { users = users }
 		require("nimure").search_ad_objects(ad_objects)
 	end)
@@ -144,7 +144,7 @@ vim.api.nvim_create_user_command("NimureADGroups", function()
 			end)
 			return
 		end
-		
+
 		local ad_objects = { groups = groups }
 		require("nimure").search_ad_objects(ad_objects)
 	end)
@@ -160,7 +160,7 @@ vim.api.nvim_create_user_command("NimureADRoles", function()
 			end)
 			return
 		end
-		
+
 		local ad_objects = { role_assignments = roles }
 		require("nimure").search_ad_objects(ad_objects)
 	end)
@@ -172,15 +172,31 @@ end, {
 vim.api.nvim_create_user_command("NimureClearCache", function()
 	local azure = require("nimure.azure")
 	local azure_ad = require("nimure.azure_ad")
-	
+
 	azure.clear_cache()
 	azure_ad.clear_cache()
-	
+
 	vim.schedule(function()
 		vim.notify("Azure and Azure AD cache cleared", vim.log.levels.INFO)
 	end)
 end, {
 	desc = "Clear Azure and Azure AD data cache to force fresh data",
+})
+-- Terraform import command
+vim.api.nvim_create_user_command("NimureTerraformImport", function()
+	local ui = require("nimure.ui")
+	if ui.tree then
+		local ok, node = pcall(ui.tree.get_node, ui.tree)
+		if ok and node and node.resource then
+			require("nimure.terraform").generate_import_block(node.resource)
+		else
+			vim.notify("No resource selected. Open sidebar and select a resource first.", vim.log.levels.WARN)
+		end
+	else
+		vim.notify("Sidebar not open. Use :NimureToggle first.", vim.log.levels.WARN)
+	end
+end, {
+	desc = "Generate Terraform import block for selected resource",
 })
 
 -- Set up health check

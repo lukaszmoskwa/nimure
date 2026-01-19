@@ -22,6 +22,9 @@ function M.check()
 
 	-- Check configuration
 	M.check_configuration(health)
+
+	-- Check Terraform (optional)
+	M.check_terraform(health)
 end
 
 -- Check Neovim version
@@ -177,6 +180,74 @@ function M.check_configuration(health)
 	if options.debug then
 		health.info("Debug mode is enabled")
 	end
+end
+
+-- Check Terraform CLI and configuration
+function M.check_terraform(health)
+	local terraform = require("nimure.terraform")
+	local config = require("nimure.config")
+	local options = config.get()
+
+	health.start("Nimure: Terraform Integration")
+
+	-- Check if Terraform feature is enabled
+	if not options.terraform or not options.terraform.enabled then
+		health.info("Terraform integration is disabled")
+		return
+	end
+
+	-- Check Terraform CLI
+	if terraform.check_terraform_cli() then
+		health.ok("Terraform CLI is installed")
+
+		-- Get version asynchronously - display result when available
+		terraform.get_terraform_version(function(version, err)
+			if version then
+				vim.schedule(function()
+					vim.notify("Terraform version: " .. version, vim.log.levels.DEBUG)
+				end)
+			end
+		end)
+	else
+		health.warn("Terraform CLI not found - import generation will not work")
+		health.info("Install Terraform: https://developer.hashicorp.com/terraform/downloads")
+	end
+
+	-- Check output directory
+	local output_dir = options.terraform.output_dir
+	if vim.fn.isdirectory(output_dir) == 1 then
+		health.ok("Output directory exists: " .. output_dir)
+	else
+		health.info("Output directory will be created: " .. output_dir)
+	end
+
+	-- Check write permissions
+	local test_file = output_dir .. "/.nimure_test"
+	if vim.fn.isdirectory(output_dir) == 1 then
+		local file = io.open(test_file, "w")
+		if file then
+			file:close()
+			os.remove(test_file)
+			health.ok("Output directory is writable")
+		else
+			health.warn("Output directory is not writable: " .. output_dir)
+		end
+	end
+
+	-- Check backend configuration
+	if options.terraform.backend.storage_account_name then
+		health.ok("Terraform backend is configured")
+		health.info("  Storage Account: " .. options.terraform.backend.storage_account_name)
+		health.info("  Container: " .. options.terraform.backend.container_name)
+		health.info("  Key: " .. options.terraform.backend.key)
+	else
+		health.info("Terraform backend not configured - backend.tf will not be generated")
+		health.info("Configure terraform.backend.storage_account_name to enable backend generation")
+	end
+
+	-- Show supported resource types count
+	local supported_types = terraform.list_supported_types()
+	health.ok(string.format("Supported Azure resource types: %d", #supported_types))
 end
 
 return M
